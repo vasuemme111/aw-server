@@ -18,10 +18,9 @@ from aw_core.log import get_log_file_path
 from aw_core.models import Event
 from aw_query import query2
 from aw_transform import heartbeat_merge
-
+from aw_datastore.storages import peewee
 from .__about__ import __version__
 from .exceptions import NotFound
-from .settings import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +50,6 @@ def check_bucket_exists(f):
 class ServerAPI:
     def __init__(self, db, testing) -> None:
         self.db = db
-        self.settings = Settings(testing)
         self.testing = testing
         self.last_event = {}  # type: dict
 
@@ -299,8 +297,11 @@ class ServerAPI:
                 last_event = last_events[0]
         else:
             last_event = self.last_event[bucket_id]
-
         if last_event:
+            if type(last_event.data) is dict:
+                last_event_str = json.dumps(last_event.data)
+                last_event.data = peewee.encrypt(last_event_str)
+            last_event.data = peewee.decrypt(last_event.data)
             if last_event.data == heartbeat.data:
                 merged = heartbeat_merge(last_event, heartbeat, pulsetime)
                 if merged is not None:
@@ -310,6 +311,8 @@ class ServerAPI:
                             bucket_id
                         )
                     )
+                    merged_str = json.dumps(merged.data)
+                    merged.data = peewee.encrypt(merged_str)
                     self.last_event[bucket_id] = merged
                     self.db[bucket_id].replace_last(merged)
                     return merged
@@ -356,12 +359,3 @@ class ServerAPI:
             for line in log_file.readlines()[::-1]:
                 payload.append(json.loads(line))
         return payload, 200
-
-    def get_setting(self, key):
-        """Get a setting"""
-        return self.settings.get(key, None)
-
-    def set_setting(self, key, value):
-        """Set a setting"""
-        self.settings[key] = value
-        return value
