@@ -3,6 +3,7 @@ import traceback
 from functools import wraps
 from threading import Lock
 from typing import Dict
+from aw_core.util import authenticate, is_internet_connected, reset_user
 
 import iso8601
 from aw_core import schema
@@ -16,11 +17,12 @@ from flask import (
     request,
 )
 from flask_restx import Api, Resource, fields
+import jwt
+import keyring
 
 from . import logger
 from .api import ServerAPI
 from .exceptions import BadRequest, Unauthorized
-
 
 def host_header_check(f):
     """
@@ -31,6 +33,11 @@ def host_header_check(f):
 
     @wraps(f)
     def decorator(*args, **kwargs):
+        # if(request.path != '/api/swagger.json' and request.path != '/api/0/login'  and request.path != '/api/0/user'):
+        #     token = request.headers.get("Authorization")
+        #     if not token:
+        #         return {"message": "Token is missing"}, 401  # Return 401 Unauthorized if token is not present
+
         server_host = current_app.config["HOST"]
         req_host = request.headers.get("host", None)
         if server_host == "0.0.0.0":
@@ -122,6 +129,133 @@ class InfoResource(Resource):
     @copy_doc(ServerAPI.get_info)
     def get(self) -> Dict[str, Dict]:
         return current_app.api.get_info()
+
+# Users
+
+
+@api.route("/0/user")
+class UserResource(Resource):
+    def post(self):
+        if not is_internet_connected():
+            print("Please connect to internet and try again.")
+        data = request.get_json()
+        if not data['email']:
+            return {"message": "User name is mandatory"}, 400
+        elif not data['password']:
+            return {"message": "Password is mandatory"}, 400
+        user = keyring.get_password("aw_user", "aw_user")
+        if True:
+            result = current_app.api.create_user(data)
+            if result.status_code == 200 and json.loads(result.text)["code"] == 'UASI0001' :
+                userPayload = {
+                    "userName" : data['email'],
+                    "password" : data['password']
+                }
+                authResult = current_app.api.authorize(userPayload)
+
+                if 'company' not in data:
+                    return json.loads(authResult.text), 200
+
+                if authResult.status_code == 200 and json.loads(authResult.text)["code"] == 'RCI0000' :
+                    token = json.loads(authResult.text)["data"]["access_token"]
+                    id = json.loads(authResult.text)["data"]["id"]
+                    companyPayload = {
+                        "name" : data['company'],
+                        "code" : data['company'],
+                        "status" : "ACTIVE"
+                    }
+
+                    companyResult = current_app.api.create_company(companyPayload,'Bearer '+token)
+
+                    if companyResult.status_code == 200 and json.loads(companyResult.text)["code"] == 'UASI0006' :
+                        current_app.api.get_user_credentials(id,'Bearer '+token)
+                        init_db = current_app.api.init_db()
+                        if init_db:
+                            return {"message": "Account created successfully"}, 200
+                        else:
+                            reset_user()
+                            return {"message": "Something went wrong"}, 500
+                    else:
+                        return json.loads(companyResult.text), 200
+                else:
+                    return json.loads(authResult.text), 200
+            else:
+                return json.loads(result.text), 200
+        else:
+            return {"message": "User already exist"}, 200
+
+@api.route("/0/company")
+class CompanyResource(Resource):
+    def post(self):
+        data = request.get_json()
+        token = request.headers.get("Authorization")
+        if not token:
+            return {"message": "Token is required"}, 401
+        if not data['name']:
+            return {"message": "Company name is mandatory"}, 400
+        companyPayload = {
+            "name" : data['name'],
+            "code" : data['code'],
+            "status" : "ACTIVE"
+        }
+
+        companyResult = current_app.api.create_company(companyPayload,token)
+
+        if companyResult.status_code == 200 and json.loads(companyResult.text)["code"] == 'UASI0006' :
+            return json.loads(companyResult.text), 200
+        else:
+            return json.loads(companyResult.text), companyResult.status_code
+
+#Login by system credentials
+@api.route("/0/login")
+class LoginResource(Resource):
+    def post(self):
+        data = request.get_json()
+        user_key = keyring.get_password("aw_user", "aw_user")
+        if user_key:
+            if authenticate(data['userName'], data['password']):
+                encoded_jwt = jwt.encode({"user": data['userName']}, user_key , algorithm="HS256")
+                return {"code": "SDI0000", "message": "Success", "data" : {"token": encoded_jwt}}, 200
+            else:
+                return {"code": "SDE0000", "message": "Username or password is wrong"}, 200
+        else:
+            return {"message": "User does not exist"}, 200
+
+    def get(self):
+        user_key = keyring.get_password("aw_user", "aw_user")
+        if user_key:
+            return {"message": "User exist"}, 200
+        else:
+            return {"message": "User does not exist"}, 401
+
+#Login by ralvie cloud
+@api.route("/0/ralvie/login")
+class RalvieLoginResource(Resource):
+    def post(self):
+        if not is_internet_connected():
+            return {"message": "Please connect to internet and try again."}, 200
+        data = request.get_json()
+        if not data['userName']:
+            return {"message": "User name is mandatory"}, 400
+        elif not data['password']:
+            return {"message": "Password is mandatory"}, 400
+        authResult = current_app.api.authorize(data)
+        if authResult.status_code == 200 and json.loads(authResult.text)["code"] == 'UASI0011' :
+            user_key = keyring.get_password("aw_user", "aw_user")
+            if not user_key:
+                token = json.loads(authResult.text)["data"]["access_token"]
+                id = json.loads(authResult.text)["data"]["id"]
+                current_app.api.get_user_credentials(id,'Bearer '+token)
+                init_db = current_app.api.init_db()
+                if not init_db:
+                    reset_user()
+                    return {"message": "Something went wrong"}, 500
+            user_key = keyring.get_password("aw_user", "aw_user")
+            encoded_jwt = jwt.encode({"user": data['userName']}, user_key , algorithm="HS256")
+            return {"code" : "UASI0011", "message" : json.loads(authResult.text)["message"], "data" : {"token": "Bearer "+encoded_jwt}}, 200
+        else:
+            return json.loads(authResult.text), 200
+
 
 
 # BUCKETS
@@ -387,20 +521,3 @@ class LogResource(Resource):
     @copy_doc(ServerAPI.get_log)
     def get(self):
         return current_app.api.get_log(), 200
-
-
-# SETTINGS
-
-
-@api.route("/0/settings", defaults={"key": ""})
-@api.route("/0/settings/<string:key>")
-class SettingsResource(Resource):
-    def get(self, key: str):
-        data = current_app.api.get_setting(key)
-        return jsonify(data)
-
-    def post(self, key: str):
-        if not key:
-            raise BadRequest("MissingParameter", "Missing required parameter key")
-        data = current_app.api.set_setting(key, request.get_json())
-        return data

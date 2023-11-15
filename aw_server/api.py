@@ -6,11 +6,14 @@ from pathlib import Path
 from socket import gethostname
 from typing import (
     Any,
+    Callable,
     Dict,
     List,
     Optional,
+    Union,
 )
 from uuid import uuid4
+from aw_core.util import decrypt_uuid, encrypt_uuid
 
 import iso8601
 from aw_core.dirs import get_data_dir
@@ -18,13 +21,13 @@ from aw_core.log import get_log_file_path
 from aw_core.models import Event
 from aw_query import query2
 from aw_transform import heartbeat_merge
-from aw_datastore.storages import peewee
+import keyring
+
 from .__about__ import __version__
 from .exceptions import NotFound
-from .settings import Settings
+import requests as req
 
 logger = logging.getLogger(__name__)
-
 
 def get_device_id() -> str:
     path = Path(get_data_dir("aw-server")) / "device_id"
@@ -47,13 +50,105 @@ def check_bucket_exists(f):
 
     return g
 
+def always_raise_for_request_errors(f: Callable[..., req.Response]):
+    @functools.wraps(f)
+    def g(*args, **kwargs):
+        r = f(*args, **kwargs)
+        try:
+            r.raise_for_status()
+        except req.RequestException as e:
+            _log_request_exception(e)
+            raise e
+        return r
+
+    return g
+
+def _log_request_exception(e: req.RequestException):
+    r = e.response
+    logger.warning(str(e))
+    try:
+        d = r.json()
+        logger.warning(f"Error message received: {d}")
+    except json.JSONDecodeError:
+        pass
 
 class ServerAPI:
     def __init__(self, db, testing) -> None:
         self.db = db
-        self.settings = Settings(testing)
         self.testing = testing
         self.last_event = {}  # type: dict
+        self.server_address = "{protocol}://{host}:{port}".format(
+            protocol='http', host='10.10.10.142', port='9010'
+        )
+
+    def _url(self, endpoint: str):
+        return f"{self.server_address}{endpoint}"
+
+    @always_raise_for_request_errors
+    def _get(self, endpoint: str, params: Optional[dict] = None) -> req.Response:
+        headers = {"Content-type": "application/json", "charset": "utf-8"}
+        if params:
+            headers.update(params)
+        return req.get(self._url(endpoint), headers=headers)
+
+    @always_raise_for_request_errors
+    def _post(
+        self,
+        endpoint: str,
+        data: Union[List[Any], Dict[str, Any]],
+        params: Optional[dict] = None,
+    ) -> req.Response:
+        headers = {"Content-type": "application/json", "charset": "utf-8"}
+        if params:
+            headers.update(params)
+        return req.post(
+            self._url(endpoint),
+            data=bytes(json.dumps(data), "utf8"),
+            headers=headers,
+            params=params,
+        )
+
+    @always_raise_for_request_errors
+    def _delete(self, endpoint: str, data: Any = dict()) -> req.Response:
+        headers = {"Content-type": "application/json"}
+        return req.delete(self._url(endpoint), data=json.dumps(data), headers=headers)
+
+
+    def init_db(self) -> bool:
+        return self.db
+
+    def create_user(self, user:Dict[str, Any]):
+        endpoint = f"/web/user"
+        return self._post(endpoint , user)
+
+    def authorize(self, user:Dict[str, Any]):
+        endpoint = f"/web/user/authorize"
+        return self._post(endpoint , user)
+
+    def create_company(self, user:Dict[str, Any], token):
+        endpoint = f"/web/company"
+        return self._post(endpoint , user, {"Authorization" : token})
+
+    def get_user_credentials(self, userId, token):
+        endpoint = f"/web/user/{userId}/credentials"
+        user_credentials = self._get(endpoint, {"Authorization" : token})
+        if user_credentials.status_code == 200 and json.loads(user_credentials.text)["code"] == 'RCI0000' :
+
+            db_key = json.loads(user_credentials.text)["data"]["dbKey"]
+            data_encryption_key = json.loads(user_credentials.text)["data"]["dataEncryptionKey"]
+            user_key = json.loads(user_credentials.text)["data"]["userKey"]
+            key = user_key
+            encrypted_db_key = encrypt_uuid(db_key,key)
+            encrypted_data_encryption_key = encrypt_uuid(data_encryption_key,key)
+            encrypted_user_key = encrypt_uuid(user_key,key)
+            keyring.set_password("aw_user", "aw_user", user_key)
+            keyring.set_password("aw_db", "aw_db", encrypted_db_key)
+            keyring.set_password("aw_data", "aw_data", encrypted_data_encryption_key)
+            key_decoded = keyring.get_password("aw_user", "aw_user")
+            print(f"user_key: {decrypt_uuid(encrypted_db_key, key_decoded)}")
+            print(f"db_key: {decrypt_uuid(encrypted_user_key,key_decoded)}")
+            print(f"watcher_key: {decrypt_uuid(encrypted_data_encryption_key, key_decoded)}")
+        return user_credentials
 
     def get_info(self) -> Dict[str, Any]:
         """Get server info"""
@@ -299,11 +394,8 @@ class ServerAPI:
                 last_event = last_events[0]
         else:
             last_event = self.last_event[bucket_id]
+
         if last_event:
-            if type(last_event.data) is dict:
-                last_event_str = json.dumps(last_event.data)
-                last_event.data = peewee.encrypt(last_event_str)
-            last_event.data = peewee.decrypt(last_event.data)
             if last_event.data == heartbeat.data:
                 merged = heartbeat_merge(last_event, heartbeat, pulsetime)
                 if merged is not None:
@@ -313,8 +405,6 @@ class ServerAPI:
                             bucket_id
                         )
                     )
-                    merged_str = json.dumps(merged.data)
-                    merged.data = peewee.encrypt(merged_str)
                     self.last_event[bucket_id] = merged
                     self.db[bucket_id].replace_last(merged)
                     return merged
@@ -361,12 +451,3 @@ class ServerAPI:
             for line in log_file.readlines()[::-1]:
                 payload.append(json.loads(line))
         return payload, 200
-
-    def get_setting(self, key):
-        """Get a setting"""
-        return self.settings.get(key, None)
-
-    def set_setting(self, key, value):
-        """Set a setting"""
-        self.settings[key] = value
-        return value
