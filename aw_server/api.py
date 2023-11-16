@@ -134,17 +134,21 @@ class ServerAPI:
         user_credentials = self._get(endpoint, {"Authorization" : token})
         if user_credentials.status_code == 200 and json.loads(user_credentials.text)["code"] == 'RCI0000' :
 
-            db_key = json.loads(user_credentials.text)["data"]["dbKey"]
-            data_encryption_key = json.loads(user_credentials.text)["data"]["dataEncryptionKey"]
-            user_key = json.loads(user_credentials.text)["data"]["userKey"]
+            db_key = json.loads(user_credentials.text)["data"]["credentials"]["dbKey"]
+            data_encryption_key = json.loads(user_credentials.text)["data"]["credentials"]["dataEncryptionKey"]
+            user_key = json.loads(user_credentials.text)["data"]["credentials"]["userKey"]
+            email = json.loads(user_credentials.text)["data"]["user"]["email"]
+            phone = json.loads(user_credentials.text)["data"]["user"]["phone"]
             key = user_key
             encrypted_db_key = encrypt_uuid(db_key,key)
             encrypted_data_encryption_key = encrypt_uuid(data_encryption_key,key)
             encrypted_user_key = encrypt_uuid(user_key,key)
-            keyring.set_password("aw_user", "aw_user", user_key)
-            keyring.set_password("aw_db", "aw_db", encrypted_db_key)
-            keyring.set_password("aw_data", "aw_data", encrypted_data_encryption_key)
-            key_decoded = keyring.get_password("aw_user", "aw_user")
+            keyring.set_password("sdcu", "sdcu", user_key)
+            keyring.set_password("sdcdb", "sdcdb", encrypted_db_key)
+            keyring.set_password("sdcdt", "sdcdt", encrypted_data_encryption_key)
+            keyring.set_password("sdce", "sdce", email)
+            keyring.set_password("sdcp", "sdcp", phone)
+            key_decoded = keyring.get_password("sdcu", "sdcu")
             print(f"user_key: {decrypt_uuid(encrypted_db_key, key_decoded)}")
             print(f"db_key: {decrypt_uuid(encrypted_user_key,key_decoded)}")
             print(f"watcher_key: {decrypt_uuid(encrypted_data_encryption_key, key_decoded)}")
