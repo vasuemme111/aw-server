@@ -115,7 +115,7 @@ class ServerAPI:
 
 
     def init_db(self) -> bool:
-        return self.db
+        return self.db.init_db()
 
     def create_user(self, user:Dict[str, Any]):
         endpoint = f"/web/user"
