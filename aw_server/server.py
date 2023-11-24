@@ -62,7 +62,7 @@ class AWFlask(Flask):
 
         self.register_blueprint(root)
         self.register_blueprint(rest.blueprint)
-        self.register_blueprint(get_custom_static_blueprint(custom_static))
+        # self.register_blueprint(get_custom_static_blueprint(custom_static))
 
 
 class CustomJSONProvider(flask.json.provider.DefaultJSONProvider):
@@ -81,6 +81,10 @@ class CustomJSONProvider(flask.json.provider.DefaultJSONProvider):
 
 @root.route("/")
 def static_root():
+    return current_app.send_static_file("index.html")
+
+@root.route("/pages/<path:path>")
+def static_home_root(path):
     return current_app.send_static_file("index.html")
 
 
