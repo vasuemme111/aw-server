@@ -455,3 +455,68 @@ class ServerAPI:
             for line in log_file.readlines()[::-1]:
                 payload.append(json.loads(line))
         return payload, 200
+    
+    @check_bucket_exists
+    def get_formated_events(
+        self,
+        bucket_id: str,
+        limit: int = -1,
+        start: Optional[datetime] = None,
+        end: Optional[datetime] = None,
+    ) -> List[Event]:
+        """Get events from a bucket"""
+        logger.debug(f"Received get request for events in bucket '{bucket_id}'")
+        if limit is None:  # Let limit = None also mean "no limit"
+            limit = -1
+        events = [
+            event.to_json_dict() for event in self.db[bucket_id].get(limit, start, end)
+        ]
+ 
+        data = events
+        # Sort the data by the "app" key and timestamp
+        data.sort(key=lambda x: (x['data']['app'], x['timestamp']))
+ 
+        # Group the data by the "app" key
+        grouped_data = {key: list(group) for key, group in groupby(data, key=lambda x: x['data']['app'])}
+ 
+        # Convert duration to timedelta for easier manipulation
+        for app, entries in grouped_data.items():
+            for entry in entries:
+                entry['duration'] = timedelta(seconds=entry['duration'])
+ 
+        # Custom JSON encoder for timedelta
+        class TimedeltaEncoder(json.JSONEncoder):
+            def default(self, obj):
+                if isinstance(obj, timedelta):
+                    return str(obj)
+                return super().default(obj)
+ 
+        # Prepare the final result in the desired format
+        result = []
+        for app, entries in grouped_data.items():
+            total_duration = sum((entry['duration'] for entry in entries), timedelta())
+ 
+            formatted_entry = {
+                "app": app,
+                "startTime": entries[0]['timestamp'],
+                "endTime": entries[-1]['timestamp'],
+                "events": [{
+                    "id": str(entry['id']),
+                    "app": entry['data']['app'],
+                    "title": entry['data']['title'],
+                    "startTime": entry['timestamp'],
+                    "endTime": (datetime.fromisoformat(entry['timestamp']) + entry['duration']).isoformat(),
+                } for entry in entries],
+                "totalHours": f"{int(total_duration.total_seconds() // 3600):02}",
+                "totalMinutes": f"{int((total_duration.total_seconds() % 3600) // 60):02}",
+                "totalSeconds": f"{int(total_duration.total_seconds()):02}"
+            }
+ 
+            result.append(formatted_entry)
+ 
+        # Convert the result to JSON using the custom encoder
+        json_result = json.dumps(result, cls=TimedeltaEncoder)
+ 
+        # Print the JSON result
+        # print(json_result)
+        return json_result

@@ -5,7 +5,8 @@ from functools import wraps
 from threading import Lock
 from typing import Dict
 from aw_core.util import authenticate, is_internet_connected, reset_user
-
+import pandas as pd
+from datetime import datetime, timedelta
 import iso8601
 from aw_core import schema
 from aw_core.models import Event
@@ -17,10 +18,13 @@ from flask import (
     make_response,
     request,
 )
+import os
 from flask_restx import Api, Resource, fields
 import jwt
 import keyring
-
+import sys
+import pdfkit
+from io import BytesIO
 from . import logger
 from .api import ServerAPI
 from .exceptions import BadRequest, Unauthorized
@@ -262,6 +266,47 @@ class RalvieLoginResource(Resource):
 
 # BUCKETS
 
+@api.route("/0/buckets/<string:bucket_id>/formated_events")
+class EventsResource(Resource):
+    # For some reason this doesn't work with the JSONSchema variant
+    # Marshalling doesn't work with JSONSchema events
+    # @api.marshal_list_with(event)
+    @api.doc(model=event)
+    @api.param("limit", "the maximum number of requests to get")
+    @api.param("start", "Start date of events")
+    @api.param("end", "End date of events")
+    @copy_doc(ServerAPI.get_events)
+    def get(self, bucket_id):
+        args = request.args
+        limit = int(args["limit"]) if "limit" in args else -1
+        start = iso8601.parse_date(args["start"]) if "start" in args else None
+        end = iso8601.parse_date(args["end"]) if "end" in args else None
+ 
+        events = current_app.api.get_formated_events(
+            bucket_id, limit=limit, start=start, end=end
+        )
+        return events, 200
+ 
+    # TODO: How to tell expect that it could be a list of events? Until then we can't use validate.
+    @api.expect(event)
+    @copy_doc(ServerAPI.create_events)
+    def post(self, bucket_id):
+        data = request.get_json()
+        logger.debug(
+            "Received post request for event in bucket '{}' and data: {}".format(
+                bucket_id, data
+            )
+        )
+ 
+        if isinstance(data, dict):
+            events = [Event(**data)]
+        elif isinstance(data, list):
+            events = [Event(**e) for e in data]
+        else:
+            raise BadRequest("Invalid POST data", "")
+ 
+        event = current_app.api.create_events(bucket_id, events)
+        return event.to_json_dict() if event else None, 200
 
 @api.route("/0/buckets/")
 class BucketsResource(Resource):
@@ -468,15 +513,107 @@ class QueryResource(Resource):
 @api.route("/0/export")
 class ExportAllResource(Resource):
     @api.doc(model=buckets_export)
-    @copy_doc(ServerAPI.export_all)
+    @api.doc(params={"format": "Export format (csv, excel, pdf)",
+                     "date": "Date for which to export data (today, yesterday)"})
     def get(self):
+        export_format = request.args.get("format", "csv",)
+        date = request.args.get("date", "today")
+        if date not in ["today", "yesterday"]:
+            return {"message": "Invalid date parameter"}, 400
+        combined_events = []
         buckets_export = current_app.api.export_all()
-        payload = {"buckets": buckets_export}
-        response = make_response(json.dumps(payload))
-        filename = "aw-buckets-export.json"
-        response.headers["Content-Disposition"] = "attachment; filename={}".format(
-            filename
-        )
+        for key, value in buckets_export.items():
+            combined_events.extend(value['events'])
+        df = pd.DataFrame(combined_events)
+        df["timestamp"] = pd.to_datetime(df["timestamp"], format='ISO8601')
+        if date == "today":
+            df = df[df["timestamp"].dt.date == datetime.now().date()]
+        elif date == "yesterday":
+            df = df[df["timestamp"].dt.date == (datetime.now() - timedelta(days=1)).date()]
+        df["duration"] = df["duration"].apply(lambda x: f"{x:.3f}")
+        df['data'] = df['data']
+        
+        if export_format == "csv":
+            return self.create_csv_response(df)
+        elif export_format == "excel":
+            return self.create_excel_response(df)
+        elif export_format == "pdf":
+            return self.create_pdf_response(df)
+        else:
+            return {"message": "Invalid export format"}, 400
+
+    def create_csv_response(self, df):
+        csv_buffer = BytesIO()
+        df.to_csv(csv_buffer, index=False)
+        csv_buffer.seek(0)
+        
+        response = make_response(csv_buffer.getvalue())
+        response.headers["Content-Disposition"] = "attachment; filename=aw-export.csv"
+        response.headers["Content-Type"] = "text/csv"
+        
+        return response
+
+    def create_excel_response(self, df):
+        excel_buffer = BytesIO()
+        with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
+            df["timestamp"] = pd.to_datetime(df["timestamp"]).dt.tz_localize(None)
+            df.to_excel(writer, index=False)
+        excel_buffer.seek(0)
+        
+        response = make_response(excel_buffer.getvalue())
+        response.headers["Content-Disposition"] = "attachment; filename=aw-export.xlsx"
+        response.headers["Content-Type"] = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        
+        return response
+    
+    def create_pdf_response(self, df):
+        css = """
+        <style type="text/css">
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            border: 1px solid #ddd;
+        }
+        th, td {
+            text-align: left;
+            padding: 8px;
+        }
+        tr:nth-child(even){background-color: #f2f2f2}
+        th {
+            background-color: #4CAF50;
+            color: white;
+        }
+        </style>
+        """
+
+        html_data = df.to_html(index=False)
+        styled_html = f"{css}<body>{html_data}</body>"
+        
+        options = {
+            'page-size': 'Letter',
+            'margin-top': '0.75in',
+            'margin-right': '0.75in',
+            'margin-bottom': '0.75in',
+            'margin-left': '0.75in',
+            'encoding': "UTF-8",
+            'custom-header': [
+                ('Accept-Encoding', 'gzip')
+            ],
+            'no-outline': None
+        }
+
+        if sys.platform == "win32":
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            activitywatch_dir = os.path.dirname(os.path.dirname(current_dir))
+            pdfkit_config = pdfkit.configuration(wkhtmltopdf=activitywatch_dir + "/wkhtmltopdf.exe")
+            pdf_data = pdfkit.from_string(styled_html, False, options=options, configuration=pdfkit_config)
+        else:
+            pdf_data = pdfkit.from_string(styled_html, False, options=options)
+        
+        response = make_response(pdf_data)
+        response.headers["Content-Type"] = "application/pdf"
+        response.headers["Content-Disposition"] = "attachment; filename=aw_export.pdf"
+        print(type(response))
         return response
 
 
