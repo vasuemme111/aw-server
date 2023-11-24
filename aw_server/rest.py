@@ -1,3 +1,4 @@
+import getpass
 import json
 import traceback
 from functools import wraps
@@ -143,7 +144,7 @@ class UserResource(Resource):
             return {"message": "User name is mandatory"}, 400
         elif not data['password']:
             return {"message": "Password is mandatory"}, 400
-        user = keyring.get_password("aw_user", "aw_user")
+        user = keyring.get_password("sdcu", "sdcu")
         if True:
             result = current_app.api.create_user(data)
             if result.status_code == 200 and json.loads(result.text)["code"] == 'UASI0001' :
@@ -211,10 +212,10 @@ class CompanyResource(Resource):
 class LoginResource(Resource):
     def post(self):
         data = request.get_json()
-        user_key = keyring.get_password("aw_user", "aw_user")
+        user_key = keyring.get_password("sdcu", "sdcu")
         if user_key:
             if authenticate(data['userName'], data['password']):
-                encoded_jwt = jwt.encode({"user": data['userName']}, user_key , algorithm="HS256")
+                encoded_jwt = jwt.encode({"user": data['userName'], "email" : keyring.get_password("sdce", "sdce"), "phone" : keyring.get_password("sdcp", "sdcp")}, user_key , algorithm="HS256")
                 return {"code": "SDI0000", "message": "Success", "data" : {"token": encoded_jwt}}, 200
             else:
                 return {"code": "SDE0000", "message": "Username or password is wrong"}, 200
@@ -222,7 +223,7 @@ class LoginResource(Resource):
             return {"message": "User does not exist"}, 200
 
     def get(self):
-        user_key = keyring.get_password("aw_user", "aw_user")
+        user_key = keyring.get_password("sdcu", "sdcu")
         if user_key:
             return {"message": "User exist"}, 200
         else:
@@ -239,9 +240,10 @@ class RalvieLoginResource(Resource):
             return {"message": "User name is mandatory"}, 400
         elif not data['password']:
             return {"message": "Password is mandatory"}, 400
+        reset_user()
         authResult = current_app.api.authorize(data)
         if authResult.status_code == 200 and json.loads(authResult.text)["code"] == 'UASI0011' :
-            user_key = keyring.get_password("aw_user", "aw_user")
+            user_key = keyring.get_password("sdcu", "sdcu")
             if not user_key:
                 token = json.loads(authResult.text)["data"]["access_token"]
                 id = json.loads(authResult.text)["data"]["id"]
@@ -250,8 +252,8 @@ class RalvieLoginResource(Resource):
                 if not init_db:
                     reset_user()
                     return {"message": "Something went wrong"}, 500
-            user_key = keyring.get_password("aw_user", "aw_user")
-            encoded_jwt = jwt.encode({"user": data['userName']}, user_key , algorithm="HS256")
+            user_key = keyring.get_password("sdcu", "sdcu")
+            encoded_jwt = jwt.encode({"user": getpass.getuser(), "email" : keyring.get_password("sdce", "sdce"), "phone" : keyring.get_password("sdcp", "sdcp")}, user_key , algorithm="HS256")
             return {"code" : "UASI0011", "message" : json.loads(authResult.text)["message"], "data" : {"token": "Bearer "+encoded_jwt}}, 200
         else:
             return json.loads(authResult.text), 200
