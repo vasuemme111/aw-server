@@ -2,7 +2,7 @@ import logging
 import os
 from datetime import datetime, timedelta
 from typing import Dict, List
-
+import webbrowser
 import aw_datastore
 import flask.json.provider
 from aw_datastore import Datastore
@@ -133,6 +133,7 @@ def _start(
         cors_origins=cors_origins,
         custom_static=custom_static,
     )
+    webbrowser.open("http://"+ host+ ":" + str(port))
     try:
         app.run(
             debug=testing,
