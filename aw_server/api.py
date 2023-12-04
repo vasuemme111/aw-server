@@ -79,7 +79,7 @@ class ServerAPI:
         self.testing = testing
         self.last_event = {}  # type: dict
         self.server_address = "{protocol}://{host}:{port}".format(
-            protocol='http', host='10.10.10.142', port='9010'
+            protocol='http', host='14.97.160.178', port='9010'
         )
 
     def _url(self, endpoint: str):
