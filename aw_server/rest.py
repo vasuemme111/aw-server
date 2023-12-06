@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 import iso8601
 from aw_core import schema
 from aw_core.models import Event
+from aw_core.cache import *
 from aw_query.exceptions import QueryException
 from flask import (
     Blueprint,
@@ -23,7 +24,6 @@ from flask_restx import Api, Resource, fields
 import jwt
 import keyring
 import sys
-import pdfkit
 from io import BytesIO
 from . import logger
 from .api import ServerAPI
@@ -141,6 +141,8 @@ class InfoResource(Resource):
 @api.route("/0/user")
 class UserResource(Resource):
     def post(self):
+        cache_key = "current_user_credentials"
+        cached_credentials = cache_user_credentials(cache_key)
         if not is_internet_connected():
             print("Please connect to internet and try again.")
         data = request.get_json()
@@ -148,7 +150,10 @@ class UserResource(Resource):
             return {"message": "User name is mandatory"}, 400
         elif not data['password']:
             return {"message": "Password is mandatory"}, 400
-        user = keyring.get_password("sdcu", "sdcu")
+        if cached_credentials is not None:
+            user = cached_credentials.get("encrypted_db_key")
+        else:
+            user = None
         if True:
             result = current_app.api.create_user(data)
             if result.status_code == 200 and json.loads(result.text)["code"] == 'UASI0001' :
@@ -211,23 +216,34 @@ class CompanyResource(Resource):
         else:
             return json.loads(companyResult.text), companyResult.status_code
 
-#Login by system credentials
+
+# Login by system credentials
 @api.route("/0/login")
 class LoginResource(Resource):
     def post(self):
         data = request.get_json()
-        user_key = keyring.get_password("sdcu", "sdcu")
+        cache_key = "current_user_credentials"
+        cached_credentials = cache_user_credentials(cache_key)
+        user_key = cached_credentials.get("user_key")
+        print(user_key)
         if user_key:
             if authenticate(data['userName'], data['password']):
-                encoded_jwt = jwt.encode({"user": data['userName'], "email" : keyring.get_password("sdce", "sdce"), "phone" : keyring.get_password("sdcp", "sdcp")}, user_key , algorithm="HS256")
-                return {"code": "SDI0000", "message": "Success", "data" : {"token": encoded_jwt}}, 200
+                encoded_jwt = jwt.encode({"user": data['userName'], "email": cached_credentials.get("email"),
+                                          "phone": cached_credentials.get("phone")}, user_key, algorithm="HS256")
+                return {"code": "SDI0000", "message": "Success", "data": {"token": encoded_jwt}}, 200
             else:
                 return {"code": "SDE0000", "message": "Username or password is wrong"}, 200
         else:
             return {"message": "User does not exist"}, 200
 
     def get(self):
-        user_key = keyring.get_password("sdcu", "sdcu")
+        data = request.get_json()
+        cache_key = "current_user_credentials"
+        cached_credentials = cache_user_credentials(cache_key)
+        if cached_credentials is not None:
+            user_key = cached_credentials.get("encrypted_db_key")
+        else:
+            user_key = None
         if user_key:
             return {"message": "User exist"}, 200
         else:
@@ -237,6 +253,8 @@ class LoginResource(Resource):
 @api.route("/0/ralvie/login")
 class RalvieLoginResource(Resource):
     def post(self):
+        cache_key = "current_user_credentials"
+        cached_credentials = cache_user_credentials(cache_key)
         if not is_internet_connected():
             return {"message": "Please connect to internet and try again."}, 200
         data = request.get_json()
@@ -246,9 +264,14 @@ class RalvieLoginResource(Resource):
             return {"message": "Password is mandatory"}, 400
         reset_user()
         authResult = current_app.api.authorize(data)
-        if authResult.status_code == 200 and json.loads(authResult.text)["code"] == 'UASI0011' :
-            user_key = keyring.get_password("sdcu", "sdcu")
-            if not user_key:
+        if authResult.status_code == 200 and json.loads(authResult.text)["code"] == 'UASI0011':
+            user_key = ""
+            if cached_credentials is not None:
+                user_key = cached_credentials.get("encrypted_db_key")
+            else:
+                user_key = None
+
+            if user_key is None:
                 token = json.loads(authResult.text)["data"]["access_token"]
                 id = json.loads(authResult.text)["data"]["id"]
                 current_app.api.get_user_credentials(id,'Bearer '+token)
@@ -256,9 +279,12 @@ class RalvieLoginResource(Resource):
                 if not init_db:
                     reset_user()
                     return {"message": "Something went wrong"}, 500
-            user_key = keyring.get_password("sdcu", "sdcu")
-            encoded_jwt = jwt.encode({"user": getpass.getuser(), "email" : keyring.get_password("sdce", "sdce"), "phone" : keyring.get_password("sdcp", "sdcp")}, user_key , algorithm="HS256")
-            return {"code" : "UASI0011", "message" : json.loads(authResult.text)["message"], "data" : {"token": "Bearer "+encoded_jwt}}, 200
+            cached_credentials = cache_user_credentials(cache_key)
+            user_key = cached_credentials.get_credentials("user_key")
+            encoded_jwt = jwt.encode({"user": getpass.getuser(), "email": cached_credentials.get("email"),
+                                      "phone": cached_credentials.get("phone")}, user_key, algorithm="HS256")
+            return {"code": "UASI0011", "message": json.loads(authResult.text)["message"],
+                    "data": {"token": "Bearer " + encoded_jwt}}, 200
         else:
             return json.loads(authResult.text), 200
 
@@ -603,18 +629,16 @@ class ExportAllResource(Resource):
         }
 
         if sys.platform == "win32":
+            import pdfkit
             current_dir = os.path.dirname(os.path.abspath(__file__))
             activitywatch_dir = os.path.dirname(os.path.dirname(current_dir))
             pdfkit_config = pdfkit.configuration(wkhtmltopdf=activitywatch_dir + "/wkhtmltopdf.exe")
             pdf_data = pdfkit.from_string(styled_html, False, options=options, configuration=pdfkit_config)
-        else:
-            pdf_data = pdfkit.from_string(styled_html, False, options=options)
-        
-        response = make_response(pdf_data)
-        response.headers["Content-Type"] = "application/pdf"
-        response.headers["Content-Disposition"] = "attachment; filename=aw_export.pdf"
-        print(type(response))
-        return response
+            response = make_response(pdf_data)
+            response.headers["Content-Type"] = "application/pdf"
+            response.headers["Content-Disposition"] = "attachment; filename=aw_export.pdf"
+            print(type(response))
+            return response
 
 
 # TODO: Perhaps we don't need this, could be done with a query argument to /0/export instead
