@@ -136,20 +136,24 @@ class ServerAPI:
     def get_user_credentials(self, userId, token):
         
         cache_key = "current_user_credentials"
-
         endpoint = f"/web/user/{userId}/credentials"
-        user_credentials = self._get(endpoint, {"Authorization" : token})
-        if user_credentials.status_code == 200 and json.loads(user_credentials.text)["code"] == 'RCI0000' :
+        user_credentials = self._get(endpoint, {"Authorization": token})
 
-            db_key = json.loads(user_credentials.text)["data"]["credentials"]["dbKey"]
-            data_encryption_key = json.loads(user_credentials.text)["data"]["credentials"]["dataEncryptionKey"]
-            user_key = json.loads(user_credentials.text)["data"]["credentials"]["userKey"]
-            email = json.loads(user_credentials.text)["data"]["user"]["email"]
-            phone = json.loads(user_credentials.text)["data"]["user"]["phone"]
+        if user_credentials.status_code == 200 and json.loads(user_credentials.text)["code"] == 'RCI0000':
+            credentials_data = json.loads(user_credentials.text)["data"]["credentials"]
+            user_data = json.loads(user_credentials.text)["data"]["user"]
+
+            db_key = credentials_data["dbKey"]
+            data_encryption_key = credentials_data["dataEncryptionKey"]
+            user_key = credentials_data["userKey"]
+            email = user_data["email"]
+            phone = user_data["phone"]
+
             key = user_key
-            encrypted_db_key = encrypt_uuid(db_key,key)
-            encrypted_data_encryption_key = encrypt_uuid(data_encryption_key,key)
-            encrypted_user_key = encrypt_uuid(user_key,key)
+            encrypted_db_key = encrypt_uuid(db_key, key)
+            encrypted_data_encryption_key = encrypt_uuid(data_encryption_key, key)
+            encrypted_user_key = encrypt_uuid(user_key, key)
+
             SD_KEYS = {
                 "user_key": user_key,
                 "encrypted_db_key": encrypted_db_key,
@@ -157,14 +161,22 @@ class ServerAPI:
                 "email": email,
                 "phone": phone
             }
+
             store_credentials(cache_key, SD_KEYS)
             serialized_data = json.dumps(SD_KEYS)
             keyring.set_password("SD_KEYS", "SD_KEYS", serialized_data)
+
             cached_credentials = get_credentials(cache_key)
             key_decoded = cached_credentials.get("user_key")
-            print(f"user_key: {decrypt_uuid(encrypted_db_key, key_decoded)}")
-            print(f"db_key: {decrypt_uuid(encrypted_user_key,key_decoded)}")
-            print(f"watcher_key: {decrypt_uuid(encrypted_data_encryption_key, key_decoded)}")
+
+            decrypted_db_key = decrypt_uuid(encrypted_db_key, key_decoded)
+            decrypted_user_key = decrypt_uuid(encrypted_user_key, key_decoded)
+            decrypted_data_encryption_key = decrypt_uuid(encrypted_data_encryption_key, key_decoded)
+
+            print(f"user_key: {decrypted_user_key}")
+            print(f"db_key: {decrypted_db_key}")
+            print(f"watcher_key: {decrypted_data_encryption_key}")
+
         return user_credentials
 
     def get_info(self) -> Dict[str, Any]:

@@ -254,39 +254,61 @@ class LoginResource(Resource):
 class RalvieLoginResource(Resource):
     def post(self):
         cache_key = "current_user_credentials"
-        cached_credentials = cache_user_credentials(cache_key)
+        # Check Internet Connectivity
         if not is_internet_connected():
-            return {"message": "Please connect to internet and try again."}, 200
+            return jsonify({"message": "Please connect to the internet and try again."}), 200
+
+        # Parse Request Data
         data = request.get_json()
-        if not data['userName']:
-            return {"message": "User name is mandatory"}, 400
-        elif not data['password']:
-            return {"message": "Password is mandatory"}, 400
+        user_name = data.get('userName')
+        password = data.get('password')
+
+        if not user_name:
+            return jsonify({"message": "User name is mandatory"}), 400
+        elif not password:
+            return jsonify({"message": "Password is mandatory"}), 400
+
+        # Reset User Data
         reset_user()
-        authResult = current_app.api.authorize(data)
-        if authResult.status_code == 200 and json.loads(authResult.text)["code"] == 'UASI0011':
-            user_key = ""
-            if cached_credentials is not None:
-                user_key = cached_credentials.get("encrypted_db_key")
-            else:
-                user_key = None
+
+        # Authenticate User
+        auth_result = current_app.api.authorize(data)
+
+        if auth_result.status_code == 200 and json.loads(auth_result.text)["code"] == 'UASI0011':
+            # Retrieve Cached User Credentials
+            cached_credentials = cache_user_credentials(cache_key)
+
+            # Get the User Key
+            user_key = cached_credentials.get("encrypted_db_key") if cached_credentials else None
 
             if user_key is None:
-                token = json.loads(authResult.text)["data"]["access_token"]
-                id = json.loads(authResult.text)["data"]["id"]
-                current_app.api.get_user_credentials(id,'Bearer '+token)
+                token = json.loads(auth_result.text)["data"]["access_token"]
+                user_id = json.loads(auth_result.text)["data"]["id"]
+                current_app.api.get_user_credentials(user_id, 'Bearer ' + token)
                 init_db = current_app.api.init_db()
+
                 if not init_db:
                     reset_user()
                     return {"message": "Something went wrong"}, 500
-            cached_credentials = cache_user_credentials(cache_key)
-            user_key = cached_credentials.get_credentials("user_key")
-            encoded_jwt = jwt.encode({"user": getpass.getuser(), "email": cached_credentials.get("email"),
-                                      "phone": cached_credentials.get("phone")}, user_key, algorithm="HS256")
-            return {"code": "UASI0011", "message": json.loads(authResult.text)["message"],
+
+            # Generate JWT
+            payload = {
+                "user": getpass.getuser(),
+                "email": cache_user_credentials(cache_key).get("email"),
+                "phone": cache_user_credentials(cache_key).get("phone")
+            }
+            encoded_jwt = jwt.encode(payload, cache_user_credentials(cache_key).get("user_key"), algorithm="HS256")
+
+            # Response
+            response_data = {
+                "code": "UASI0011",
+                "message": json.loads(auth_result.text)["message"],
+                "data": {"token": "Bearer " + encoded_jwt}
+            }
+            return {"code": "UASI0011", "message": json.loads(auth_result.text)["message"],
                     "data": {"token": "Bearer " + encoded_jwt}}, 200
         else:
-            return json.loads(authResult.text), 200
+            return jsonify(response_data), 200
 
 
 
