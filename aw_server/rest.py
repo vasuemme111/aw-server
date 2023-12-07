@@ -255,6 +255,7 @@ class RalvieLoginResource(Resource):
     def post(self):
         cache_key = "current_user_credentials"
         # Check Internet Connectivity
+        response_data = {}
         if not is_internet_connected():
             return jsonify({"message": "Please connect to the internet and try again."}), 200
 
@@ -300,11 +301,9 @@ class RalvieLoginResource(Resource):
             encoded_jwt = jwt.encode(payload, cache_user_credentials(cache_key).get("user_key"), algorithm="HS256")
 
             # Response
-            response_data = {
-                "code": "UASI0011",
-                "message": json.loads(auth_result.text)["message"],
-                "data": {"token": "Bearer " + encoded_jwt}
-            }
+            response_data['code'] = "UASI0011",
+            response_data["message"]= json.loads(auth_result.text)["message"],
+            response_data["data"]: {"token": "Bearer " + encoded_jwt}
             return {"code": "UASI0011", "message": json.loads(auth_result.text)["message"],
                     "data": {"token": "Bearer " + encoded_jwt}}, 200
         else:
