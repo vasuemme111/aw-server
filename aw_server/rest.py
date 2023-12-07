@@ -678,7 +678,13 @@ class BucketExportResource(Resource):
         )
         return response
 
-
+@api.route("/0/user_details")
+class UserDetails(Resource):
+    @copy_doc(ServerAPI.get_user_details)
+    def get(self):
+        user_details = current_app.api.get_user_details()
+        return user_details
+    
 @api.route("/0/import")
 class ImportAllResource(Resource):
     @api.expect(buckets_export)

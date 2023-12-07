@@ -148,7 +148,8 @@ class ServerAPI:
             user_key = credentials_data["userKey"]
             email = user_data["email"]
             phone = user_data["phone"]
-
+            firstName = user_data['firstName']
+            lastName = user_data['lastName']
             key = user_key
             encrypted_db_key = encrypt_uuid(db_key, key)
             encrypted_data_encryption_key = encrypt_uuid(data_encryption_key, key)
@@ -159,7 +160,9 @@ class ServerAPI:
                 "encrypted_db_key": encrypted_db_key,
                 "encrypted_data_encryption_key": encrypted_data_encryption_key,
                 "email": email,
-                "phone": phone
+                "phone": phone,
+                "firstname": firstName,
+                "lastname": lastName,
             }
 
             store_credentials(cache_key, SD_KEYS)
@@ -178,6 +181,17 @@ class ServerAPI:
             print(f"watcher_key: {decrypted_data_encryption_key}")
 
         return user_credentials
+
+
+    def get_user_details(self):
+        cache_key = "current_user_credentials"
+        cached_credentials = get_credentials(cache_key)
+        if not cached_credentials is None:
+            return {"email": cached_credentials.get("email"),
+                    "phone": cached_credentials.get("phone"),
+                    "firstname": cached_credentials.get("firstname"),
+                    "lastname": cached_credentials.get("lastname")}
+    
 
     def get_info(self) -> Dict[str, Any]:
         """Get server info"""
