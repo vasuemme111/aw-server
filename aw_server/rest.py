@@ -704,6 +704,25 @@ class ImportAllResource(Resource):
 
 
 # LOGGING
+@api.route("/0/settings")
+class SaveSettings(Resource):
+    @copy_doc(ServerAPI.save_settings)
+    def post(self):
+        settings_id = 1
+        settings = request.get_json()  # This will parse JSON data sent in the request body
+        if settings:
+            # Assuming current_app.api.save_settings() is your method to save settings
+            return current_app.api.save_settings(settings_id, settings_dict=settings), 200
+        else:
+            # Handle the case where no JSON is provided
+            return {"message": "No settings provided"}, 400
+
+@api.route("/0/getsettings")
+class getSettings(Resource):
+    @copy_doc(ServerAPI.get_settings)
+    def get(self):
+        settings_id = 1
+        current_app.api.get_settings(settings_id)
 
 
 @api.route("/0/log")

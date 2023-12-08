@@ -85,6 +85,12 @@ class ServerAPI:
             protocol='http', host='14.97.160.178', port='9010'
         )
 
+    def save_settings(self, settings_id, settings_dict) -> None:
+        self.db.save_settings(settings_id=settings_id, settings_dict=settings_dict)
+
+    def get_settings(self, settings_id) -> Dict[str, Any]:
+        return self.db.retrieve_settings(settings_id)
+
     def _url(self, endpoint: str):
         return f"{self.server_address}{endpoint}"
 
@@ -182,15 +188,20 @@ class ServerAPI:
 
         return user_credentials
 
-
     def get_user_details(self):
         cache_key = "current_user_credentials"
         cached_credentials = get_credentials(cache_key)
+        settings_id = 1
+        image = self.db.retrieve_settings(settings_id)
+        response_data = {"email": cached_credentials.get("email"), "phone": cached_credentials.get("phone"),
+                         "firstname": cached_credentials.get("firstname"),
+                         "lastname": cached_credentials.get("lastname")}
+        if image:
+            response_data['ProfileImage'] = image['ProfileImage']
+        else:
+            response_data['ProfileImage'] = ""
         if not cached_credentials is None:
-            return {"email": cached_credentials.get("email"),
-                    "phone": cached_credentials.get("phone"),
-                    "firstname": cached_credentials.get("firstname"),
-                    "lastname": cached_credentials.get("lastname")}
+            return response_data
     
 
     def get_info(self) -> Dict[str, Any]:
