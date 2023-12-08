@@ -181,6 +181,7 @@ class ServerAPI:
             decrypted_db_key = decrypt_uuid(encrypted_db_key, key_decoded)
             decrypted_user_key = decrypt_uuid(encrypted_user_key, key_decoded)
             decrypted_data_encryption_key = decrypt_uuid(encrypted_data_encryption_key, key_decoded)
+            self.last_event = {}
 
             print(f"user_key: {decrypted_user_key}")
             print(f"db_key: {decrypted_db_key}")
