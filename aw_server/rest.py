@@ -28,6 +28,10 @@ from io import BytesIO
 from . import logger
 from .api import ServerAPI
 from .exceptions import BadRequest, Unauthorized
+from aw_qt.manager import Manager
+
+manager = Manager()
+
 
 def host_header_check(f):
     """
@@ -61,7 +65,6 @@ def host_header_check(f):
 
 blueprint = Blueprint("api", __name__, url_prefix="/api")
 api = Api(blueprint, doc="/", decorators=[host_header_check])
-
 
 # Loads event and bucket schema from JSONSchema in aw_core
 event = api.schema_model("Event", schema.get_json_schema("event"))
@@ -135,6 +138,7 @@ class InfoResource(Resource):
     def get(self) -> Dict[str, Dict]:
         return current_app.api.get_info()
 
+
 # Users
 
 
@@ -156,29 +160,29 @@ class UserResource(Resource):
             user = None
         if True:
             result = current_app.api.create_user(data)
-            if result.status_code == 200 and json.loads(result.text)["code"] == 'UASI0001' :
+            if result.status_code == 200 and json.loads(result.text)["code"] == 'UASI0001':
                 userPayload = {
-                    "userName" : data['email'],
-                    "password" : data['password']
+                    "userName": data['email'],
+                    "password": data['password']
                 }
                 authResult = current_app.api.authorize(userPayload)
 
                 if 'company' not in data:
                     return json.loads(authResult.text), 200
 
-                if authResult.status_code == 200 and json.loads(authResult.text)["code"] == 'RCI0000' :
+                if authResult.status_code == 200 and json.loads(authResult.text)["code"] == 'RCI0000':
                     token = json.loads(authResult.text)["data"]["access_token"]
                     id = json.loads(authResult.text)["data"]["id"]
                     companyPayload = {
-                        "name" : data['company'],
-                        "code" : data['company'],
-                        "status" : "ACTIVE"
+                        "name": data['company'],
+                        "code": data['company'],
+                        "status": "ACTIVE"
                     }
 
-                    companyResult = current_app.api.create_company(companyPayload,'Bearer '+token)
+                    companyResult = current_app.api.create_company(companyPayload, 'Bearer ' + token)
 
-                    if companyResult.status_code == 200 and json.loads(companyResult.text)["code"] == 'UASI0006' :
-                        current_app.api.get_user_credentials(id,'Bearer '+token)
+                    if companyResult.status_code == 200 and json.loads(companyResult.text)["code"] == 'UASI0006':
+                        current_app.api.get_user_credentials(id, 'Bearer ' + token)
                         init_db = current_app.api.init_db()
                         if init_db:
                             return {"message": "Account created successfully"}, 200
@@ -194,6 +198,7 @@ class UserResource(Resource):
         else:
             return {"message": "User already exist"}, 200
 
+
 @api.route("/0/company")
 class CompanyResource(Resource):
     def post(self):
@@ -204,14 +209,14 @@ class CompanyResource(Resource):
         if not data['name']:
             return {"message": "Company name is mandatory"}, 400
         companyPayload = {
-            "name" : data['name'],
-            "code" : data['code'],
-            "status" : "ACTIVE"
+            "name": data['name'],
+            "code": data['code'],
+            "status": "ACTIVE"
         }
 
-        companyResult = current_app.api.create_company(companyPayload,token)
+        companyResult = current_app.api.create_company(companyPayload, token)
 
-        if companyResult.status_code == 200 and json.loads(companyResult.text)["code"] == 'UASI0006' :
+        if companyResult.status_code == 200 and json.loads(companyResult.text)["code"] == 'UASI0006':
             return json.loads(companyResult.text), 200
         else:
             return json.loads(companyResult.text), companyResult.status_code
@@ -249,7 +254,8 @@ class LoginResource(Resource):
         else:
             return {"message": "User does not exist"}, 401
 
-#Login by ralvie cloud
+
+# Login by ralvie cloud
 @api.route("/0/ralvie/login")
 class RalvieLoginResource(Resource):
     def post(self):
@@ -302,13 +308,12 @@ class RalvieLoginResource(Resource):
 
             # Response
             response_data['code'] = "UASI0011",
-            response_data["message"]= json.loads(auth_result.text)["message"],
+            response_data["message"] = json.loads(auth_result.text)["message"],
             response_data["data"]: {"token": "Bearer " + encoded_jwt}
             return {"code": "UASI0011", "message": json.loads(auth_result.text)["message"],
                     "data": {"token": "Bearer " + encoded_jwt}}, 200
         else:
             return jsonify(response_data), 200
-
 
 
 # BUCKETS
@@ -328,12 +333,12 @@ class EventsResource(Resource):
         limit = int(args["limit"]) if "limit" in args else -1
         start = iso8601.parse_date(args["start"]) if "start" in args else None
         end = iso8601.parse_date(args["end"]) if "end" in args else None
- 
+
         events = current_app.api.get_formated_events(
             bucket_id, limit=limit, start=start, end=end
         )
         return events, 200
- 
+
     # TODO: How to tell expect that it could be a list of events? Until then we can't use validate.
     @api.expect(event)
     @copy_doc(ServerAPI.create_events)
@@ -344,16 +349,17 @@ class EventsResource(Resource):
                 bucket_id, data
             )
         )
- 
+
         if isinstance(data, dict):
             events = [Event(**data)]
         elif isinstance(data, list):
             events = [Event(**e) for e in data]
         else:
             raise BadRequest("Invalid POST data", "")
- 
+
         event = current_app.api.create_events(bucket_id, events)
         return event.to_json_dict() if event else None, 200
+
 
 @api.route("/0/buckets/")
 class BucketsResource(Resource):
@@ -563,7 +569,7 @@ class ExportAllResource(Resource):
     @api.doc(params={"format": "Export format (csv, excel, pdf)",
                      "date": "Date for which to export data (today, yesterday)"})
     def get(self):
-        export_format = request.args.get("format", "csv",)
+        export_format = request.args.get("format", "csv", )
         date = request.args.get("date", "today")
         if date not in ["today", "yesterday"]:
             return {"message": "Invalid date parameter"}, 400
@@ -579,7 +585,7 @@ class ExportAllResource(Resource):
             df = df[df["timestamp"].dt.date == (datetime.now() - timedelta(days=1)).date()]
         df["duration"] = df["duration"].apply(lambda x: f"{x:.3f}")
         df['data'] = df['data']
-        
+
         if export_format == "csv":
             return self.create_csv_response(df)
         elif export_format == "excel":
@@ -593,11 +599,11 @@ class ExportAllResource(Resource):
         csv_buffer = BytesIO()
         df.to_csv(csv_buffer, index=False)
         csv_buffer.seek(0)
-        
+
         response = make_response(csv_buffer.getvalue())
         response.headers["Content-Disposition"] = "attachment; filename=aw-export.csv"
         response.headers["Content-Type"] = "text/csv"
-        
+
         return response
 
     def create_excel_response(self, df):
@@ -606,13 +612,13 @@ class ExportAllResource(Resource):
             df["timestamp"] = pd.to_datetime(df["timestamp"]).dt.tz_localize(None)
             df.to_excel(writer, index=False)
         excel_buffer.seek(0)
-        
+
         response = make_response(excel_buffer.getvalue())
         response.headers["Content-Disposition"] = "attachment; filename=aw-export.xlsx"
         response.headers["Content-Type"] = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        
+
         return response
-    
+
     def create_pdf_response(self, df):
         css = """
         <style type="text/css">
@@ -635,7 +641,7 @@ class ExportAllResource(Resource):
 
         html_data = df.to_html(index=False)
         styled_html = f"{css}<body>{html_data}</body>"
-        
+
         options = {
             'page-size': 'Letter',
             'margin-top': '0.75in',
@@ -677,13 +683,15 @@ class BucketExportResource(Resource):
         )
         return response
 
+
 @api.route("/0/user_details")
 class UserDetails(Resource):
     @copy_doc(ServerAPI.get_user_details)
     def get(self):
         user_details = current_app.api.get_user_details()
         return user_details
-    
+
+
 @api.route("/0/import")
 class ImportAllResource(Resource):
     @api.expect(buckets_export)
@@ -717,6 +725,7 @@ class SaveSettings(Resource):
             # Handle the case where no JSON is provided
             return {"message": "No settings provided"}, 400
 
+
 @api.route("/0/getsettings")
 class getSettings(Resource):
     @copy_doc(ServerAPI.get_settings)
@@ -730,3 +739,28 @@ class LogResource(Resource):
     @copy_doc(ServerAPI.get_log)
     def get(self):
         return current_app.api.get_log(), 200
+
+
+@api.route('/0/start/')
+class StartModule(Resource):
+    @api.doc(params={"module": "Module Name", })
+    def get(self):
+        module_name = request.args.get("module")
+        message = manager.start_modules(module_name)
+        return jsonify({"message": message})
+
+
+@api.route('/0/stop/')
+class StopModule(Resource):
+    @api.doc(params={"module": "Module Name", })
+    def get(self):
+        module_name = request.args.get("module")
+        message = manager.stop_modules(module_name)
+        return jsonify({"message": message})
+
+
+@api.route('/0/status')
+class Status(Resource):
+    def get(self):
+        modules = manager.status()
+        return jsonify(modules)
