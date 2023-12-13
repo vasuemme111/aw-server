@@ -5,6 +5,8 @@ import logging
 from datetime import datetime, timedelta
 from pathlib import Path
 from socket import gethostname
+
+from aw-core.aw_core.cache import cache_user_credentials
 from aw_core.cache import *
 from typing import (
     Any,
@@ -28,6 +30,7 @@ import keyring
 from .__about__ import __version__
 from .exceptions import NotFound
 import requests as req
+from dateutil import parser
 
 logger = logging.getLogger(__name__)
 
@@ -140,7 +143,7 @@ class ServerAPI:
         return self._post(endpoint , user, {"Authorization" : token})
 
     def get_user_credentials(self, userId, token):
-        
+
         cache_key = "current_user_credentials"
         endpoint = f"/web/user/{userId}/credentials"
         user_credentials = self._get(endpoint, {"Authorization": token})
@@ -203,7 +206,7 @@ class ServerAPI:
             response_data['ProfileImage'] = ""
         if not cached_credentials is None:
             return response_data
-    
+
 
     def get_info(self) -> Dict[str, Any]:
         """Get server info"""
@@ -571,3 +574,86 @@ class ServerAPI:
         # Print the JSON result
         # print(json_result)
         return json_result
+
+def datetime_serializer(obj):
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+
+def event_filter(data):
+
+    if (
+        isinstance(data, list)
+        and len(data) > 0
+    ):
+        events = sorted(data, key=lambda x: parser.isoparse(x["timestamp"]).timestamp())
+        formated_events = []
+        start_date_time = None
+        start_hour = 24
+        start_min = 59
+
+        for e in events:
+            event_start = parser.isoparse(e["timestamp"])
+            event_end = event_start + timedelta(seconds=e["duration"])
+            # color = getRandomColorVariants()  # Assuming you have this function implemented
+
+            new_event = {
+                **e,
+                "start": event_start.isoformat(),
+                "end": event_end.isoformat(),
+                "event_id": e["id"],
+                "title": e["data"]["title"],
+                # "light": color["light"],
+                # "dark": color["dark"],
+            }
+            formated_events.append(new_event)
+
+            if start_hour > event_start.hour or (start_hour == event_start.hour and start_min > event_start.minute):
+                start_hour = event_start.hour
+                start_min = event_start.minute
+                start_date_time = event_start
+
+
+        # Sort the data by the "app" key and timestamp
+        events.sort(key=lambda x: (x['data']['app'], x['timestamp']))
+
+        # Group the data by the "app" key
+        grouped_data = {key: list(group) for key, group in groupby(events, key=lambda x: x['data']['app'])}
+
+        # Convert duration to timedelta for easier manipulation
+        for app, entries in grouped_data.items():
+            for entry in entries:
+                entry['duration'] = timedelta(seconds=entry['duration'])
+
+        # Prepare the final result in the desired format
+        result = []
+        for app, entries in grouped_data.items():
+            total_duration = sum((entry['duration'] for entry in entries), timedelta())
+
+            formatted_entry = {
+                "app": app,
+                "startTime": entries[0]['timestamp'],
+                "endTime": entries[-1]['timestamp'],
+                "events": [{
+                    "id": str(entry['id']),
+                    "app": entry['data']['app'],
+                    "title": entry['data']['title'],
+                    "startTime": entry['timestamp'],
+                    "endTime": (datetime.fromisoformat(entry['timestamp']) + entry['duration']).isoformat(),
+                } for entry in entries],
+                "totalHours": f"{int(total_duration.total_seconds() // 3600):02}",
+                "totalMinutes": f"{int((total_duration.total_seconds() % 3600) // 60):02}",
+                "totalSeconds": f"{int(total_duration.total_seconds()):02}"
+            }
+
+            result.append(formatted_entry)
+
+        # Convert events list to JSON object using custom serializer
+        events_json = json.dumps({
+            "events": formated_events,
+            "start_hour": start_hour,
+            "start_min": start_min,
+            "start_date_time": start_date_time,
+            "most_used_apps" : result
+        }, default=datetime_serializer)
+
+        return json.loads(events_json)  # Parse the JSON string to a Python object

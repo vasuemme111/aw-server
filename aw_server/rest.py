@@ -42,11 +42,20 @@ def host_header_check(f):
 
     @wraps(f)
     def decorator(*args, **kwargs):
-        # if(request.path != '/api/swagger.json' and request.path != '/api/0/login'  and request.path != '/api/0/user'):
-        #     token = request.headers.get("Authorization")
-        #     if not token:
-        #         return {"message": "Token is missing"}, 401  # Return 401 Unauthorized if token is not present
-
+        if("/heartbeat" not in request.path and request.path != '/api/0/buckets/'and request.path != '/api/swagger.json'and request.path != '/api/0/ralvie/login' and request.path != '/api/0/login'  and request.path != '/api/0/user' and request.method != 'OPTIONS'):
+            token = request.headers.get("Authorization")
+            if not token:
+                print("Token is missing")
+                return {"message": "Token is missing"}, 401  # Return 401 Unauthorized if token is not present
+            else:
+                cache_key = "current_user_credentials"
+                cached_credentials = cache_user_credentials(cache_key)
+                user_key = cached_credentials.get("user_key")
+                try:
+                    jwt.decode(token.replace("Bearer ",""),key=user_key, algorithms=["HS256"])
+                except Exception as e:
+                    print("Invalid token")
+                    return {"message": "Invalid token"}, 401
         server_host = current_app.config["HOST"]
         req_host = request.headers.get("host", None)
         if server_host == "0.0.0.0":
@@ -313,7 +322,7 @@ class RalvieLoginResource(Resource):
             return {"code": "UASI0011", "message": json.loads(auth_result.text)["message"],
                     "data": {"token": "Bearer " + encoded_jwt}}, 200
         else:
-            return jsonify(response_data), 200
+            return {"code": json.loads(auth_result.text)["code"], "message": json.loads(auth_result.text)["message"]}, 200
 
 
 # BUCKETS
@@ -517,6 +526,10 @@ class HeartbeatResource(Resource):
     def post(self, bucket_id):
         heartbeat = Event(**request.get_json())
 
+        cache_key = "current_user_credentials"
+        cached_credentials = cache_user_credentials(cache_key)
+        if cached_credentials == None:
+            return None
         if "pulsetime" in request.args:
             pulsetime = float(request.args["pulsetime"])
         else:
