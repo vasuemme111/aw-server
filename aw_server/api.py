@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from socket import gethostname
 
-from aw-core.aw_core.cache import cache_user_credentials
+from aw_core.cache import cache_user_credentials
 from aw_core.cache import *
 from typing import (
     Any,
