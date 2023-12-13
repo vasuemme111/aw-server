@@ -378,7 +378,7 @@ class ServerAPI:
         events = [
             event.to_json_dict() for event in self.db[bucket_id].get(limit, start, end)
         ]
-        return events
+        return event_filter(events)
 
     @check_bucket_exists
     def create_events(self, bucket_id: str, events: List[Event]) -> Optional[Event]:
