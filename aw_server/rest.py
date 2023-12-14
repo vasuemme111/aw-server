@@ -48,14 +48,16 @@ def host_header_check(f):
                 print("Token is missing")
                 return {"message": "Token is missing"}, 401  # Return 401 Unauthorized if token is not present
             else:
-                cache_key = "current_user_credentials"
-                cached_credentials = cache_user_credentials(cache_key)
-                user_key = cached_credentials.get("user_key")
-                try:
-                    jwt.decode(token.replace("Bearer ",""),key=user_key, algorithms=["HS256"])
-                except Exception as e:
-                    print("Invalid token")
-                    return {"message": "Invalid token"}, 401
+                if("/company" not in request.path):
+                    cache_key = "current_user_credentials"
+                    cached_credentials = cache_user_credentials(cache_key)
+                    user_key = cached_credentials.get("user_key")
+
+                    try:
+                        jwt.decode(token.replace("Bearer ",""),key=user_key, algorithms=["HS256"])
+                    except Exception as e:
+                        print("Invalid token")
+                        return {"message": "Invalid token"}, 401
         server_host = current_app.config["HOST"]
         req_host = request.headers.get("host", None)
         if server_host == "0.0.0.0":
@@ -322,7 +324,7 @@ class RalvieLoginResource(Resource):
             return {"code": "UASI0011", "message": json.loads(auth_result.text)["message"],
                     "data": {"token": "Bearer " + encoded_jwt}}, 200
         else:
-            return {"code": json.loads(auth_result.text)["code"], "message": json.loads(auth_result.text)["message"]}, 200
+            return {"code": json.loads(auth_result.text)["code"], "message": json.loads(auth_result.text)["message"], "data" : json.loads(auth_result.text)["data"]}, 200
 
 
 # BUCKETS
