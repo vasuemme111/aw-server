@@ -22,6 +22,7 @@ pyjwt="*"
 pandas="*"
 pdfkit="*"
 xlsxwriter="*"
+tzlocal="*"
 
 [tool.poetry.dev-dependencies]
 mypy = "*"
