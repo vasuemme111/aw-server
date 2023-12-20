@@ -47,7 +47,7 @@ def host_header_check(f):
 
     @wraps(f)
     def decorator(*args, **kwargs):
-        if("/heartbeat" not in request.path and request.path != '/api/0/buckets/'and request.path != '/api/swagger.json'and request.path != '/api/0/ralvie/login' and request.path != '/api/0/login'  and request.path != '/api/0/user' and request.method != 'OPTIONS'):
+        if("/heartbeat" not in request.path and "/credentials" not in request.path and request.path != '/api/0/buckets/'and request.path != '/api/swagger.json'and request.path != '/api/0/ralvie/login' and request.path != '/api/0/login'  and request.path != '/api/0/user' and request.method != 'OPTIONS'):
             token = request.headers.get("Authorization")
             if not token:
                 print("Token is missing")
@@ -845,3 +845,14 @@ class Status(Resource):
     def get(self):
         modules = manager.status()
         return jsonify(modules)
+
+@api.route('/0/credentials')
+class User(Resource):
+    def get(self):
+        cache_key = "current_user_credentials"
+        cached_credentials = cache_user_credentials(cache_key)
+        user_key = cached_credentials.get("encrypted_db_key") if cached_credentials else None
+        if user_key is None:
+            return False, 404
+        else:
+            return jsonify({"firstName": cached_credentials.get("firstname"), "lastName" : cached_credentials.get("lastname"), "email" : cached_credentials.get("email")})
