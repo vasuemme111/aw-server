@@ -1,12 +1,16 @@
 import getpass
 import json
+import logging
 import traceback
 from functools import wraps
 from threading import Lock
 from typing import Dict
+
+import pytz
+from tzlocal import get_localzone
 from aw_core.util import authenticate, is_internet_connected, reset_user
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import iso8601
 from aw_core import schema
 from aw_core.models import Event
@@ -31,6 +35,7 @@ from .exceptions import BadRequest, Unauthorized
 from aw_qt.manager import Manager
 
 manager = Manager()
+
 
 
 def host_header_check(f):
@@ -74,8 +79,15 @@ def host_header_check(f):
     return decorator
 
 
+authorizations = {
+    'Bearer': {
+        'type': 'apiKey',
+        'in': 'header',
+        'name': 'Authorization',
+    }
+}
 blueprint = Blueprint("api", __name__, url_prefix="/api")
-api = Api(blueprint, doc="/", decorators=[host_header_check])
+api = Api(blueprint, doc="/", decorators=[host_header_check], authorizations=authorizations)
 
 # Loads event and bucket schema from JSONSchema in aw_core
 event = api.schema_model("Event", schema.get_json_schema("event"))
@@ -140,10 +152,24 @@ def copy_doc(api_method):
 
 
 # SERVER INFO
-
+def format_duration(duration):
+    if duration is not None:
+        seconds = int(duration)
+        d = seconds // (3600 * 24)
+        h = seconds // 3600 % 24
+        m = seconds % 3600 // 60
+        s = seconds % 3600 % 60
+        if h > 0:
+            return '{:02d}H {:02d}m {:02d}s'.format(h, m, s)
+        elif m > 0:
+            return '{:02d}m {:02d}s'.format(m, s)
+        elif s > 0:
+            return '{:02d}s'.format(s)
+    return '1s'
 
 @api.route("/0/info")
 class InfoResource(Resource):
+    @api.doc(security="Bearer")
     @api.marshal_with(info)
     @copy_doc(ServerAPI.get_info)
     def get(self) -> Dict[str, Dict]:
@@ -155,6 +181,7 @@ class InfoResource(Resource):
 
 @api.route("/0/user")
 class UserResource(Resource):
+    @api.doc(security="Bearer")
     def post(self):
         cache_key = "current_user_credentials"
         cached_credentials = cache_user_credentials(cache_key)
@@ -584,53 +611,48 @@ class ExportAllResource(Resource):
     @api.doc(params={"format": "Export format (csv, excel, pdf)",
                      "date": "Date for which to export data (today, yesterday)"})
     def get(self):
-        export_format = request.args.get("format", "csv", )
-        date = request.args.get("date", "today")
-        if date not in ["today", "yesterday"]:
+        export_format = request.args.get("format", "csv")
+        _day = request.args.get("date", "today")
+        if _day not in ["today", "yesterday"]:
             return {"message": "Invalid date parameter"}, 400
+
+        # Export and process data
         combined_events = []
         buckets_export = current_app.api.export_all()
         for key, value in buckets_export.items():
             combined_events.extend(value['events'])
-        df = pd.DataFrame(combined_events)
 
-        # Convert timestamp to datetime
-        df["timestamp"] = pd.to_datetime(df["timestamp"], format='ISO8601')
+        df = pd.DataFrame(combined_events)[::-1]
+        df["datetime"] = pd.to_datetime(df["timestamp"], format='ISO8601')
+        system_timezone = get_localzone()
 
-        # Filter by date if needed
-        if date == "today":
-            df = df[df["timestamp"].dt.date == datetime.now().date()]
-        elif date == "yesterday":
-            df = df[df["timestamp"].dt.date == (datetime.now() - timedelta(days=1)).date()]
+        # Convert timestamps to the system's local time using pytz
+        df["datetime"] = df["datetime"].dt.tz_convert(system_timezone)
 
-        # Format duration
-        df["duration"] = df["duration"].apply(lambda x: f"{x:.3f}")
+        if _day == "today":
+            df = df[df["datetime"].dt.date == datetime.now().date()]
+        elif _day == "yesterday":
+            df = df[df["datetime"].dt.date == (datetime.now() - timedelta(days=1)).date()]
 
-        # Extract 'app' and 'title' from 'data'
+        # Format du
+        # Applying the format_duration function to the 'duration' column
+        df["duration"] = df["duration"].apply(lambda x: format_duration(x))
         df['Application Name'] = df['data'].apply(lambda x: x.get('app', 'Unknown'))
         df['Event Data'] = df['data'].apply(lambda x: x.get('title') if 'title' in x else x.get('status', ''))
+        df["Event Timestamp"] = df["datetime"].dt.strftime('%H:%M:%S')
 
-        df["timestamp"] = pd.to_datetime(df["timestamp"], format='ISO8601').dt.strftime('%H:%M:%S')
-
-        # Rename columns
+        # Finalize DataFrame
         if 'id' in df.columns:
             df.drop('id', axis=1, inplace=True)
-
-        # Add a new 'SL NO.' column with autoincremented numbers
         df.insert(0, 'SL NO.', range(1, 1 + len(df)))
-
-        # Rename the other columns as needed
-        df.rename(columns={'timestamp': 'Event Timestamp', 'duration': 'Time Spent'}, inplace=True)
-
-        # Select and reorder columns
-        df = df[['SL NO.', 'Application Name', 'Time Spent', 'Event Timestamp', 'Event Data']]
+        df = df[['SL NO.', 'Application Name', 'duration', 'Event Timestamp', 'Event Data']]
 
         if export_format == "csv":
             return self.create_csv_response(df)
         elif export_format == "excel":
             return self.create_excel_response(df)
         elif export_format == "pdf":
-            return self.create_pdf_response(df)
+            return self.create_pdf_response(df, _day)
         else:
             return {"message": "Invalid export format"}, 400
 
@@ -638,17 +660,14 @@ class ExportAllResource(Resource):
         csv_buffer = BytesIO()
         df.to_csv(csv_buffer, index=False)
         csv_buffer.seek(0)
-
         response = make_response(csv_buffer.getvalue())
         response.headers["Content-Disposition"] = "attachment; filename=aw-export.csv"
         response.headers["Content-Type"] = "text/csv"
-
         return response
 
     def create_excel_response(self, df):
         excel_buffer = BytesIO()
         with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
-            df["timestamp"] = pd.to_datetime(df["timestamp"]).dt.tz_localize(None)
             df.to_excel(writer, index=False)
         excel_buffer.seek(0)
 
@@ -658,7 +677,7 @@ class ExportAllResource(Resource):
 
         return response
 
-    def create_pdf_response(self, df):
+    def create_pdf_response(self, df, _day):
         cache_key = "current_user_credentials"
         cached_credentials = cache_user_credentials(cache_key)
         css = """
@@ -680,7 +699,7 @@ class ExportAllResource(Resource):
                     text-align: center; /* Center logo */
                 }
                 .header img {
-                    width: 100px; /* Adjust as needed */
+                    width: 300px; /* Adjust as needed */
                 }
                 .text-container {
                     text-align: left;
@@ -697,7 +716,7 @@ class ExportAllResource(Resource):
                 <div class="text-container">
                     <p>Name: {cached_credentials['firstname']}</p>
                     <p>Email: {cached_credentials['email']}</p>
-                    <p>Date: {datetime.now().strftime('%d-%b-%y')}</p>
+                    <p>Date: {date.today() if _day == "today" else date.today()-timedelta(days=1)}</p>
                 </div>
             </div>
             """
@@ -727,7 +746,6 @@ class ExportAllResource(Resource):
             response = make_response(pdf_data)
             response.headers["Content-Type"] = "application/pdf"
             response.headers["Content-Disposition"] = "attachment; filename=aw_export.pdf"
-            print(styled_html)
             return response
 
 

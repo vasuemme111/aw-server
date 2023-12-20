@@ -251,8 +251,10 @@ class ServerAPI:
         """Exports all buckets and their events to a format consistent across versions"""
         buckets = self.get_buckets()
         exported_buckets = {}
-        for bid in buckets.keys():
-            exported_buckets[bid] = self.export_bucket(bid)
+        for key, value in buckets.items():
+            if value["client"] == "aw-watcher-window":
+                id_of_client = value["id"]
+                exported_buckets[id_of_client] = self.export_bucket(id_of_client)
         return exported_buckets
 
     def import_bucket(self, bucket_data: Any):
