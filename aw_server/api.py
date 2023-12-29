@@ -528,6 +528,25 @@ class ServerAPI:
             event.to_json_dict() for event in self.db[bucket_id].get(limit, start, end)
         ]
 
+        buckets = self.db.buckets()
+        afk_bucket_id = None
+        combined_list = None
+        for b in buckets:
+            if "afk" in b:
+                afk_bucket_id = b
+        if afk_bucket_id:
+            afk_events = [
+                event.to_json_dict() for event in self.db[afk_bucket_id].get(limit, start, end)
+            ]
+
+            afkEvents = sorted(afk_events, key=lambda x: parser.isoparse(x["timestamp"]).timestamp())
+            condition = lambda x: x["data"]["status"] == "not-afk"
+            filtered_afk_events = [x for x in afkEvents if not condition(x)]
+            
+            if filtered_afk_events:
+                combined_list = events + filtered_afk_events
+                return event_filter(combined_list)
+
         return event_filter(events)
 
 def datetime_serializer(obj):
@@ -547,43 +566,43 @@ def event_filter(data):
         start_min = 59
 
         for e in events:
-            event_start = parser.isoparse(e["timestamp"])
-            event_end = event_start + timedelta(seconds=e["duration"])
-            # color = getRandomColorVariants()  # Assuming you have this function implemented
+            if not "LockApp" in e['data']['app'] and not "loginwindow" in e['data']['app'] and e['duration'] > 0 and e['data']['title']:
+                event_start = parser.isoparse(e["timestamp"])
+                event_end = event_start + timedelta(seconds=e["duration"])
+                # color = getRandomColorVariants()  # Assuming you have this function implemented
 
-            new_event = {
-                **e,
-                "start": event_start.isoformat(),
-                "end": event_end.isoformat(),
-                "event_id": e["id"],
-                "title": e["data"].get("title", ""),
-                # "light": color["light"],
-                # "dark": color["dark"],
-            }
-            formated_events.append(new_event)
+                new_event = {
+                    **e,
+                    "start": event_start.isoformat(),
+                    "end": event_end.isoformat(),
+                    "event_id": e["id"],
+                    "title": e["data"].get("title", ""),
+                    # "light": color["light"],
+                    # "dark": color["dark"],
+                }
+                formated_events.append(new_event)
 
-            if start_hour > event_start.hour or (start_hour == event_start.hour and start_min > event_start.minute):
-                start_hour = event_start.hour
-                start_min = event_start.minute
-                start_date_time = event_start
+                if start_hour > event_start.hour or (start_hour == event_start.hour and start_min > event_start.minute):
+                    start_hour = event_start.hour
+                    start_min = event_start.minute
+                    start_date_time = event_start
 
 
         # Sort the data by the "app" key and timestamp
-        events.sort(key=lambda x: (x['data']['app'], x['timestamp']))
+        formated_events.sort(key=lambda x: (x['data']['app'], x['timestamp']))
 
         # Group the data by the "app" key
-        grouped_data = {key: list(group) for key, group in groupby(events, key=lambda x: x['data']['app'])}
+        grouped_data = {key: list(group) for key, group in groupby(formated_events, key=lambda x: x['data']['app'])}
 
         # Convert duration to timedelta for easier manipulation
-        for app, entries in grouped_data.items():
-            for entry in entries:
-                entry['duration'] = timedelta(seconds=entry['duration'])
+        # for app, entries in grouped_data.items():
+        #     for entry in entries:
+        #         entry['duration'] = timedelta(seconds=entry['duration'])
 
         # Prepare the final result in the desired format
         result = []
         for app, entries in grouped_data.items():
-            total_duration = sum((entry['duration'] for entry in entries), timedelta())
-
+            total_duration = sum((timedelta(seconds=entry['duration']) for entry in entries), timedelta())
             formatted_entry = {
                 "app": app,
                 "startTime": entries[0]['timestamp'],
@@ -593,7 +612,7 @@ def event_filter(data):
                     "app": entry['data']['app'],
                     "title": entry['data']['title'],
                     "startTime": entry['timestamp'],
-                    "endTime": (datetime.fromisoformat(entry['timestamp']) + entry['duration']).isoformat(),
+                    "endTime": (datetime.fromisoformat(entry['timestamp']) + timedelta(seconds=entry['duration'])).isoformat(),
                 } for entry in entries],
                 "totalHours": f"{int(total_duration.total_seconds() // 3600):02}",
                 "totalMinutes": f"{int((total_duration.total_seconds() % 3600) // 60):02}",
