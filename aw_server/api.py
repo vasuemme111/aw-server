@@ -536,39 +536,16 @@ class ServerAPI:
                 afk_bucket_id = b
         if afk_bucket_id:
             afk_events = [
-                event.to_json_dict() for event in self.db["aw-watcher-afk_LAP248"].get(limit, start, end)
+                event.to_json_dict() for event in self.db[afk_bucket_id].get(limit, start, end)
             ]
 
             afkEvents = sorted(afk_events, key=lambda x: parser.isoparse(x["timestamp"]).timestamp())
             condition = lambda x: x["data"]["status"] == "not-afk"
             filtered_afk_events = [x for x in afkEvents if not condition(x)]
-            formated_afk_events = []
-            for fe in filtered_afk_events:
-                new_event = {
-                    **fe,
-                    "data" : {"app":"IdleTime","title" : "Idle time"}
-                }
-                formated_afk_events.append(new_event)
-
-            grouped_afk_events = {key: list(group) for key, group in groupby(formated_afk_events, key=lambda x: x['timestamp'])}
-
-
-            events_afk = []
-
-            for timestamp, entries in grouped_afk_events.items():
-                # print(entries)
-                total_duration = entries[0]['duration']
-
-                formatted_afk_entry = {
-                    **entries[0],
-                    "duration": total_duration,
-                    "timestamp" : timestamp,
-                }
-                events_afk.append(formatted_afk_entry)
-
-        if events_afk:
-            combined_list = events + events_afk
-            return event_filter(combined_list)
+            
+            if filtered_afk_events:
+                combined_list = events + filtered_afk_events
+                return event_filter(combined_list)
 
         return event_filter(events)
 
@@ -589,7 +566,7 @@ def event_filter(data):
         start_min = 59
 
         for e in events:
-            if not "LockApp" in e['data']['app'] and not "loginwindow" in e['data']['app']:
+            if not "LockApp" in e['data']['app'] and not "loginwindow" in e['data']['app'] and e['duration'] > 0 and e['data']['title']:
                 event_start = parser.isoparse(e["timestamp"])
                 event_end = event_start + timedelta(seconds=e["duration"])
                 # color = getRandomColorVariants()  # Assuming you have this function implemented
