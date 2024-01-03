@@ -54,10 +54,9 @@ def host_header_check(f):
                 return {"message": "Token is missing"}, 401  # Return 401 Unauthorized if token is not present
             else:
                 if("/company" not in request.path):
-                    cache_key = "current_user_credentials"
-                    cached_credentials = cache_user_credentials(cache_key)
+                    cache_key = "sundial"
+                    cached_credentials = cache_user_credentials(cache_key,"SD_KEYS")
                     user_key = cached_credentials.get("user_key")
-
                     try:
                         jwt.decode(token.replace("Bearer ",""),key=user_key, algorithms=["HS256"])
                     except Exception as e:
@@ -183,8 +182,8 @@ class InfoResource(Resource):
 class UserResource(Resource):
     @api.doc(security="Bearer")
     def post(self):
-        cache_key = "current_user_credentials"
-        cached_credentials = cache_user_credentials(cache_key)
+        cache_key = "sundial"
+        cached_credentials = cache_user_credentials(cache_key,"SD_KEYS")
         if not is_internet_connected():
             print("Please connect to internet and try again.")
         data = request.get_json()
@@ -265,8 +264,8 @@ class CompanyResource(Resource):
 class LoginResource(Resource):
     def post(self):
         data = request.get_json()
-        cache_key = "current_user_credentials"
-        cached_credentials = cache_user_credentials(cache_key)
+        cache_key = "sundial"
+        cached_credentials = cache_user_credentials(cache_key,"SD_KEYS")
         user_key = cached_credentials.get("user_key")
         print(user_key)
         if user_key:
@@ -281,8 +280,8 @@ class LoginResource(Resource):
 
     def get(self):
         data = request.get_json()
-        cache_key = "current_user_credentials"
-        cached_credentials = cache_user_credentials(cache_key)
+        cache_key = "sundial"
+        cached_credentials = cache_user_credentials(cache_key,"SD_KEYS")
         if cached_credentials is not None:
             user_key = cached_credentials.get("encrypted_db_key")
         else:
@@ -297,7 +296,7 @@ class LoginResource(Resource):
 @api.route("/0/ralvie/login")
 class RalvieLoginResource(Resource):
     def post(self):
-        cache_key = "current_user_credentials"
+        cache_key = "sundial"
         # Check Internet Connectivity
         response_data = {}
         if not is_internet_connected():
@@ -321,7 +320,7 @@ class RalvieLoginResource(Resource):
 
         if auth_result.status_code == 200 and json.loads(auth_result.text)["code"] == 'UASI0011':
             # Retrieve Cached User Credentials
-            cached_credentials = cache_user_credentials(cache_key)
+            cached_credentials = cache_user_credentials(cache_key,"SD_KEYS")
 
             # Get the User Key
             user_key = cached_credentials.get("encrypted_db_key") if cached_credentials else None
@@ -339,10 +338,10 @@ class RalvieLoginResource(Resource):
             # Generate JWT
             payload = {
                 "user": getpass.getuser(),
-                "email": cache_user_credentials(cache_key).get("email"),
-                "phone": cache_user_credentials(cache_key).get("phone")
+                "email": cache_user_credentials(cache_key,"SD_KEYS").get("email"),
+                "phone": cache_user_credentials(cache_key,"SD_KEYS").get("phone")
             }
-            encoded_jwt = jwt.encode(payload, cache_user_credentials(cache_key).get("user_key"), algorithm="HS256")
+            encoded_jwt = jwt.encode(payload, cache_user_credentials(cache_key,"SD_KEYS").get("user_key"), algorithm="HS256")
 
             # Response
             response_data['code'] = "UASI0011",
@@ -555,8 +554,8 @@ class HeartbeatResource(Resource):
     def post(self, bucket_id):
         heartbeat = Event(**request.get_json())
 
-        cache_key = "current_user_credentials"
-        cached_credentials = cache_user_credentials(cache_key)
+        cache_key = "sundial"
+        cached_credentials = cache_user_credentials(cache_key,"SD_KEYS")
         if cached_credentials == None:
             return None
         if "pulsetime" in request.args:
@@ -678,8 +677,8 @@ class ExportAllResource(Resource):
         return response
 
     def create_pdf_response(self, df, _day):
-        cache_key = "current_user_credentials"
-        cached_credentials = cache_user_credentials(cache_key)
+        cache_key = "sundial"
+        cached_credentials = cache_user_credentials(cache_key,"SD_KEYS")
         css = """
             <style type="text/css">
                 body{
@@ -849,8 +848,8 @@ class Status(Resource):
 @api.route('/0/credentials')
 class User(Resource):
     def get(self):
-        cache_key = "current_user_credentials"
-        cached_credentials = cache_user_credentials(cache_key)
+        cache_key = "sundial"
+        cached_credentials = cache_user_credentials(cache_key,"SD_KEYS")
         user_key = cached_credentials.get("encrypted_db_key") if cached_credentials else None
         if user_key is None:
             return False, 404

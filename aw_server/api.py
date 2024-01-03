@@ -79,8 +79,8 @@ def _log_request_exception(e: req.RequestException):
 
 class ServerAPI:
     def __init__(self, db, testing) -> None:
-        cache_key = "current_user_credentials"
-        cache_user_credentials(cache_key)
+        cache_key = "sundial"
+        cache_user_credentials(cache_key,"SD_KEYS")
         self.db = db
         self.testing = testing
         self.last_event = {}  # type: dict
@@ -144,7 +144,7 @@ class ServerAPI:
 
     def get_user_credentials(self, userId, token):
 
-        cache_key = "current_user_credentials"
+        cache_key = "sundial"
         endpoint = f"/web/user/{userId}/credentials"
         user_credentials = self._get(endpoint, {"Authorization": token})
 
@@ -176,7 +176,7 @@ class ServerAPI:
 
             store_credentials(cache_key, SD_KEYS)
             serialized_data = json.dumps(SD_KEYS)
-            keyring.set_password("SD_KEYS", "SD_KEYS", serialized_data)
+            add_password("SD_KEYS", serialized_data)
 
             cached_credentials = get_credentials(cache_key)
             key_decoded = cached_credentials.get("user_key")
@@ -193,7 +193,7 @@ class ServerAPI:
         return user_credentials
 
     def get_user_details(self):
-        cache_key = "current_user_credentials"
+        cache_key = "sundial"
         cached_credentials = get_credentials(cache_key)
         settings_id = 1
         image = self.db.retrieve_settings(settings_id)
