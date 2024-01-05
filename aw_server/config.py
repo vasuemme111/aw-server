@@ -3,9 +3,9 @@ from aw_core.config import load_config_toml
 default_config = """
 [server]
 host = "localhost"
-port = "5600"
+port = "7600"
 storage = "peewee"
-cors_origins = "http://localhost:27180,http://localhost:3000,http://localhost:5600"
+cors_origins = "http://localhost:27180,http://localhost:3000,http://localhost:7600"
 
 [server.custom_static]
 

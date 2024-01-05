@@ -5,7 +5,7 @@ import traceback
 from functools import wraps
 from threading import Lock
 from typing import Dict
-
+import pdfkit
 import pytz
 from tzlocal import get_localzone
 from aw_core.util import authenticate, is_internet_connected, reset_user
@@ -37,42 +37,47 @@ from aw_qt.manager import Manager
 manager = Manager()
 
 
-
 def host_header_check(f):
     """
-    Protects against DNS rebinding attacks (see https://github.com/ActivityWatch/activitywatch/security/advisories/GHSA-v9fg-6g9j-h4x4)
-
-    Some discussion in Syncthing how they do it: https://github.com/syncthing/syncthing/issues/4819
+    Protects against DNS rebinding attacks.
+    More details can be found at ActivityWatch and Syncthing discussions:
+    - https://github.com/ActivityWatch/activitywatch/security/advisories/GHSA-v9fg-6g9j-h4x4
+    - https://github.com/syncthing/syncthing/issues/4819
     """
 
     @wraps(f)
     def decorator(*args, **kwargs):
-        if("/heartbeat" not in request.path and "/credentials" not in request.path and request.path != '/api/0/buckets/'and request.path != '/api/swagger.json'and request.path != '/api/0/ralvie/login' and request.path != '/api/0/login'  and request.path != '/api/0/user' and request.method != 'OPTIONS'):
+        excluded_paths = [
+            '/api/0/buckets/',
+            '/api/swagger.json', '/api/0/ralvie/login',
+            '/api/0/login', '/api/0/user'
+        ]
+        if "/heartbeat" not in request.path and "/credentials" not in request.path and request.path not in excluded_paths and request.method != 'OPTIONS':
             token = request.headers.get("Authorization")
             if not token:
-                print("Token is missing")
-                return {"message": "Token is missing"}, 401  # Return 401 Unauthorized if token is not present
-            else:
-                if("/company" not in request.path):
-                    cache_key = "sundial"
-                    cached_credentials = cache_user_credentials(cache_key,"SD_KEYS")
-                    user_key = cached_credentials.get("user_key")
-                    try:
-                        jwt.decode(token.replace("Bearer ",""),key=user_key, algorithms=["HS256"])
-                    except Exception as e:
-                        print("Invalid token")
-                        return {"message": "Invalid token"}, 401
+                logging.warning("Token is missing")
+                return {"message": "Token is missing"}, 401
+            elif "/company" not in request.path:
+                cache_key = "sundial"
+                cached_credentials = cache_user_credentials(cache_key, "SD_KEYS")
+                user_key = cached_credentials.get("user_key")
+                try:
+                    jwt.decode(token.replace("Bearer ", ""), key=user_key, algorithms=["HS256"])
+                except jwt.InvalidTokenError as e:
+                    logging.error("Invalid token")
+                    return {"message": "Invalid token"}, 401
+
         server_host = current_app.config["HOST"]
         req_host = request.headers.get("host", None)
         if server_host == "0.0.0.0":
-            logger.warning(
+            logging.warning(
                 "Server is listening on 0.0.0.0, host header check is disabled (potential security issue)."
             )
         elif req_host is None:
             return {"message": "host header is missing"}, 400
-        else:
-            if req_host.split(":")[0] not in ["localhost", "127.0.0.1", server_host]:
-                return {"message": f"host header is invalid (was {req_host})"}, 400
+        elif req_host.split(":")[0] not in ["localhost", "127.0.0.1", server_host]:
+            return {"message": f"host header is invalid (was {req_host})"}, 400
+
         return f(*args, **kwargs)
 
     return decorator
@@ -166,6 +171,7 @@ def format_duration(duration):
             return '{:02d}s'.format(s)
     return '1s'
 
+
 @api.route("/0/info")
 class InfoResource(Resource):
     @api.doc(security="Bearer")
@@ -183,7 +189,7 @@ class UserResource(Resource):
     @api.doc(security="Bearer")
     def post(self):
         cache_key = "sundial"
-        cached_credentials = cache_user_credentials(cache_key,"SD_KEYS")
+        cached_credentials = cache_user_credentials(cache_key, "SD_KEYS")
         if not is_internet_connected():
             print("Please connect to internet and try again.")
         data = request.get_json()
@@ -265,7 +271,7 @@ class LoginResource(Resource):
     def post(self):
         data = request.get_json()
         cache_key = "sundial"
-        cached_credentials = cache_user_credentials(cache_key,"SD_KEYS")
+        cached_credentials = cache_user_credentials(cache_key, "SD_KEYS")
         user_key = cached_credentials.get("user_key")
         print(user_key)
         if user_key:
@@ -281,7 +287,7 @@ class LoginResource(Resource):
     def get(self):
         data = request.get_json()
         cache_key = "sundial"
-        cached_credentials = cache_user_credentials(cache_key,"SD_KEYS")
+        cached_credentials = cache_user_credentials(cache_key, "SD_KEYS")
         if cached_credentials is not None:
             user_key = cached_credentials.get("encrypted_db_key")
         else:
@@ -320,7 +326,7 @@ class RalvieLoginResource(Resource):
 
         if auth_result.status_code == 200 and json.loads(auth_result.text)["code"] == 'UASI0011':
             # Retrieve Cached User Credentials
-            cached_credentials = cache_user_credentials(cache_key,"SD_KEYS")
+            cached_credentials = cache_user_credentials(cache_key, "SD_KEYS")
 
             # Get the User Key
             user_key = cached_credentials.get("encrypted_db_key") if cached_credentials else None
@@ -338,10 +344,11 @@ class RalvieLoginResource(Resource):
             # Generate JWT
             payload = {
                 "user": getpass.getuser(),
-                "email": cache_user_credentials(cache_key,"SD_KEYS").get("email"),
-                "phone": cache_user_credentials(cache_key,"SD_KEYS").get("phone")
+                "email": cache_user_credentials(cache_key, "SD_KEYS").get("email"),
+                "phone": cache_user_credentials(cache_key, "SD_KEYS").get("phone")
             }
-            encoded_jwt = jwt.encode(payload, cache_user_credentials(cache_key,"SD_KEYS").get("user_key"), algorithm="HS256")
+            encoded_jwt = jwt.encode(payload, cache_user_credentials(cache_key, "SD_KEYS").get("user_key"),
+                                     algorithm="HS256")
 
             # Response
             response_data['code'] = "UASI0011",
@@ -350,7 +357,8 @@ class RalvieLoginResource(Resource):
             return {"code": "UASI0011", "message": json.loads(auth_result.text)["message"],
                     "data": {"token": "Bearer " + encoded_jwt}}, 200
         else:
-            return {"code": json.loads(auth_result.text)["code"], "message": json.loads(auth_result.text)["message"], "data" : json.loads(auth_result.text)["data"]}, 200
+            return {"code": json.loads(auth_result.text)["code"], "message": json.loads(auth_result.text)["message"],
+                    "data": json.loads(auth_result.text)["data"]}, 200
 
 
 # BUCKETS
@@ -555,7 +563,7 @@ class HeartbeatResource(Resource):
         heartbeat = Event(**request.get_json())
 
         cache_key = "sundial"
-        cached_credentials = cache_user_credentials(cache_key,"SD_KEYS")
+        cached_credentials = cache_user_credentials(cache_key, "SD_KEYS")
         if cached_credentials == None:
             return None
         if "pulsetime" in request.args:
@@ -677,8 +685,9 @@ class ExportAllResource(Resource):
         return response
 
     def create_pdf_response(self, df, _day):
+        pdf_data = "s"
         cache_key = "sundial"
-        cached_credentials = cache_user_credentials(cache_key,"SD_KEYS")
+        cached_credentials = cache_user_credentials(cache_key, "SD_KEYS")
         css = """
             <style type="text/css">
                 body{
@@ -715,7 +724,7 @@ class ExportAllResource(Resource):
                 <div class="text-container">
                     <p>Name: {cached_credentials['firstname']}</p>
                     <p>Email: {cached_credentials['email']}</p>
-                    <p>Date: {date.today() if _day == "today" else date.today()-timedelta(days=1)}</p>
+                    <p>Date: {date.today() if _day == "today" else date.today() - timedelta(days=1)}</p>
                 </div>
             </div>
             """
@@ -724,28 +733,33 @@ class ExportAllResource(Resource):
         styled_html = f"{css}<body>{header}{html_data}</body>"
 
         options = {
-                'page-size': 'Letter',
-                'margin-top': '0.75in',
-                'margin-right': '0.75in',
-                'margin-bottom': '0.75in',
-                'margin-left': '0.75in',
-                'encoding': "UTF-8",
-                'custom-header': [
-                    ('Accept-Encoding', 'gzip')
-                ],
-                'no-outline': None
-            }
-
+            'page-size': 'Letter',
+            'margin-top': '0.75in',
+            'margin-right': '0.75in',
+            'margin-bottom': '0.75in',
+            'margin-left': '0.75in',
+            'encoding': "UTF-8",
+            'custom-header': [
+                ('Accept-Encoding', 'gzip')
+            ],
+            'no-outline': None
+        }
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        activitywatch_dir = os.path.dirname(os.path.dirname(current_dir))
         if sys.platform == "win32":
-            import pdfkit
-            current_dir = os.path.dirname(os.path.abspath(__file__))
-            activitywatch_dir = os.path.dirname(os.path.dirname(current_dir))
             pdfkit_config = pdfkit.configuration(wkhtmltopdf=activitywatch_dir + "/wkhtmltopdf.exe")
             pdf_data = pdfkit.from_string(styled_html, False, options=options, configuration=pdfkit_config)
-            response = make_response(pdf_data)
-            response.headers["Content-Type"] = "application/pdf"
-            response.headers["Content-Disposition"] = "attachment; filename=aw_export.pdf"
-            return response
+        elif sys.platform=="darwin":
+            _module_dir = os.path.dirname(os.path.realpath(__file__))
+            print(_module_dir)
+            _parent_dir = os.path.abspath(os.path.join(_module_dir, os.pardir))
+            logger.warning(_parent_dir)
+            pdfkit_config = pdfkit.configuration(wkhtmltopdf=_parent_dir + "/wkhtmltopdf")
+            pdf_data = pdfkit.from_string(styled_html, False, options=options, configuration=pdfkit_config)
+        response = make_response(pdf_data)
+        response.headers["Content-Type"] = "application/pdf"
+        response.headers["Content-Disposition"] = "attachment; filename=aw_export.pdf"
+        return response
 
 
 # TODO: Perhaps we don't need this, could be done with a query argument to /0/export instead
@@ -823,6 +837,7 @@ class LogResource(Resource):
 
 @api.route('/0/start/')
 class StartModule(Resource):
+    @api.doc(security="Bearer")
     @api.doc(params={"module": "Module Name", })
     def get(self):
         module_name = request.args.get("module")
@@ -832,6 +847,7 @@ class StartModule(Resource):
 
 @api.route('/0/stop/')
 class StopModule(Resource):
+    @api.doc(security="Bearer")
     @api.doc(params={"module": "Module Name", })
     def get(self):
         module_name = request.args.get("module")
@@ -841,17 +857,23 @@ class StopModule(Resource):
 
 @api.route('/0/status')
 class Status(Resource):
+    @api.doc(security="Bearer")
     def get(self):
         modules = manager.status()
+        print(modules)
         return jsonify(modules)
+
 
 @api.route('/0/credentials')
 class User(Resource):
+
     def get(self):
         cache_key = "sundial"
-        cached_credentials = cache_user_credentials(cache_key,"SD_KEYS")
+        cached_credentials = cache_user_credentials(cache_key, "SD_KEYS")
         user_key = cached_credentials.get("encrypted_db_key") if cached_credentials else None
         if user_key is None:
             return False, 404
         else:
-            return jsonify({"firstName": cached_credentials.get("firstname"), "lastName" : cached_credentials.get("lastname"), "email" : cached_credentials.get("email")})
+            return jsonify(
+                {"firstName": cached_credentials.get("firstname"), "lastName": cached_credentials.get("lastname"),
+                 "email": cached_credentials.get("email")})
