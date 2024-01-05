@@ -520,41 +520,37 @@ class ServerAPI:
         start: Optional[datetime] = None,
         end: Optional[datetime] = None,
     ) -> List[Event]:
-        """Get events from a bucket"""
-        logger.debug(f"Received get request for events in bucket '{bucket_id}'")
-        if limit is None:  # Let limit = None also mean "no limit"
-            limit = -1
-        events = [
-            event.to_json_dict() for event in self.db[bucket_id].get(limit, start, end)
-        ]
-
-        buckets = self.db.buckets()
-        afk_bucket_id = None
-        combined_list = None
-        for b in buckets:
-            if "afk" in b:
-                afk_bucket_id = b
-        if afk_bucket_id:
-            afk_events = [
-                event.to_json_dict() for event in self.db[afk_bucket_id].get(limit, start, end)
-            ]
-
-            afkEvents = sorted(afk_events, key=lambda x: parser.isoparse(x["timestamp"]).timestamp())
-            condition = lambda x: x["data"]["status"] == "not-afk"
-            filtered_afk_events = [x for x in afkEvents if not condition(x)]
-            
-            if filtered_afk_events:
-                combined_list = events + filtered_afk_events
-                return event_filter(combined_list)
-
-        return event_filter(events)
+        events = self.db.get_dashboard_events(starttime=start,endtime=end)
+ 
+        current_date = datetime.now().date()
+        start_of_day = datetime.combine(current_date, datetime.min.time())
+        end_of_day = datetime.combine(current_date, datetime.max.time())
+        most_used_apps = self.db.get_most_used_apps(starttime=start_of_day,endtime=end_of_day)
+ 
+        if len(events) > 0:
+            event_start = parser.isoparse(events[0]["timestamp"])
+            start_hour = event_start.hour
+            start_min = event_start.minute
+            start_date_time = event_start
+ 
+            # Convert events list to JSON object using custom serializer
+            events_json = json.dumps({
+                "events": events,
+                "start_hour": start_hour,
+                "start_min": start_min,
+                "start_date_time": start_date_time,
+                "most_used_apps" : most_used_apps
+            }, default=datetime_serializer)
+ 
+            return json.loads(events_json)
+        else: return None
 
 def datetime_serializer(obj):
     if isinstance(obj, datetime):
         return obj.isoformat()
 
-def event_filter(data):
-
+def event_filter(most_used_apps,data):
+ 
     if (
         isinstance(data, list)
         and len(data) > 0
@@ -564,13 +560,13 @@ def event_filter(data):
         start_date_time = None
         start_hour = 24
         start_min = 59
-
+ 
         for e in events:
-            if not "LockApp" in e['data']['app'] and not "loginwindow" in e['data']['app'] and e['duration'] > 0 and e['data']['title']:
+            if not "LockApp" in e['data']['app'] and not "loginwindow" in e['data']['app']:
                 event_start = parser.isoparse(e["timestamp"])
                 event_end = event_start + timedelta(seconds=e["duration"])
                 # color = getRandomColorVariants()  # Assuming you have this function implemented
-
+ 
                 new_event = {
                     **e,
                     "start": event_start.isoformat(),
@@ -581,53 +577,19 @@ def event_filter(data):
                     # "dark": color["dark"],
                 }
                 formated_events.append(new_event)
-
+ 
                 if start_hour > event_start.hour or (start_hour == event_start.hour and start_min > event_start.minute):
                     start_hour = event_start.hour
                     start_min = event_start.minute
                     start_date_time = event_start
-
-
-        # Sort the data by the "app" key and timestamp
-        formated_events.sort(key=lambda x: (x['data']['app'], x['timestamp']))
-
-        # Group the data by the "app" key
-        grouped_data = {key: list(group) for key, group in groupby(formated_events, key=lambda x: x['data']['app'])}
-
-        # Convert duration to timedelta for easier manipulation
-        # for app, entries in grouped_data.items():
-        #     for entry in entries:
-        #         entry['duration'] = timedelta(seconds=entry['duration'])
-
-        # Prepare the final result in the desired format
-        result = []
-        for app, entries in grouped_data.items():
-            total_duration = sum((timedelta(seconds=entry['duration']) for entry in entries), timedelta())
-            formatted_entry = {
-                "app": app,
-                "startTime": entries[0]['timestamp'],
-                "endTime": entries[-1]['timestamp'],
-                "events": [{
-                    "id": str(entry['id']),
-                    "app": entry['data']['app'],
-                    "title": entry['data']['title'],
-                    "startTime": entry['timestamp'],
-                    "endTime": (datetime.fromisoformat(entry['timestamp']) + timedelta(seconds=entry['duration'])).isoformat(),
-                } for entry in entries],
-                "totalHours": f"{int(total_duration.total_seconds() // 3600):02}",
-                "totalMinutes": f"{int((total_duration.total_seconds() % 3600) // 60):02}",
-                "totalSeconds": f"{int(total_duration.total_seconds()):02}"
-            }
-
-            result.append(formatted_entry)
-
+ 
         # Convert events list to JSON object using custom serializer
         events_json = json.dumps({
             "events": formated_events,
             "start_hour": start_hour,
             "start_min": start_min,
             "start_date_time": start_date_time,
-            "most_used_apps" : result
+            "most_used_apps" : most_used_apps
         }, default=datetime_serializer)
-
+ 
         return json.loads(events_json)  # Parse the JSON string to a Python object
