@@ -12,6 +12,9 @@ logger = logging.getLogger(__name__)
 
 
 def main():
+    """
+     Entry point for aw - server. This is the main function called by the executable and __main__. py
+    """
     """Called from the executable and __main__.py"""
 
     settings, storage_method = parse_settings()
@@ -32,9 +35,11 @@ def main():
 
     logger.info(f"Using storage method: {settings.storage}")
 
+    # If testing is enabled in testing mode
     if settings.testing:
         logger.info("Will run in testing mode")
 
+    # If the custom_static setting is set to true the static static file is used.
     if settings.custom_static:
         logger.info(f"Using custom_static: {settings.custom_static}")
 
@@ -50,6 +55,12 @@ def main():
 
 
 def parse_settings():
+    """
+     Parses and validates command line arguments. This is called from main () to allow user to add settings to the command line
+     
+     
+     @return A tuple containing the parsed and validated
+    """
     import argparse
 
     """ CLI Arguments """
@@ -90,6 +101,7 @@ def parse_settings():
         help="The custom static directories. Format: watcher_name=path,watcher_name2=path2,...",
     )
     args = parser.parse_args()
+    # If version is set to 1. 0 print the version number and exit with 0.
     if args.version:
         print(__version__)
         sys.exit(0)
@@ -104,8 +116,11 @@ def parse_settings():
     settings.custom_static = dict(config[configsection]["custom_static"])
 
     """ If a argument is not none, override the config value """
+    # Set settings for custom_static settings.
     for key, value in vars(args).items():
+        # Set the value of the settings variable.
         if value is not None:
+            # Set the value of the settings variable.
             if key == "custom_static":
                 settings.custom_static = parse_str_to_dict(value)
             else:
@@ -120,13 +135,22 @@ def parse_settings():
 
 
 def parse_str_to_dict(str_value):
+    """
+     Parses a string in format key = value into a dict. This is useful for parsing dictionaries that are sent to Snapchat
+     
+     @param str_value - The string to parse.
+     
+     @return A dict with the keys and values from the string as keys and values as values. Example :. from fabtools import swarming_config import Snap
+    """
     """Parses a dict from a string in format: key=value,key2=value2,..."""
     output = dict()
     key_value_pairs = str_value.split(",")
 
+    # Parse the key value pairs of the key value pairs and store the output dictionary.
     for pair in key_value_pairs:
         pair_split = pair.split("=")
 
+        # ValueError if the key value pair is not 2 characters long.
         if len(pair_split) != 2:
             raise ValueError(f"Cannot parse key value pair: {pair}")
 

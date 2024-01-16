@@ -1,3 +1,4 @@
+# This is a copy of aw_core. config. load_config_toml but with some modifications
 from aw_core.config import load_config_toml
 
 default_config = """
