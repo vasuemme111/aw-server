@@ -877,3 +877,29 @@ class User(Resource):
             return jsonify(
                 {"firstName": cached_credentials.get("firstname"), "lastName": cached_credentials.get("lastname"),
                  "email": cached_credentials.get("email")})
+
+# BUCKETS
+
+@api.route("/0/dashboard/events")
+class DashboardResource(Resource):
+    def get(self):
+        args = request.args
+        start = iso8601.parse_date(args["start"]) if "start" in args else None
+        end = iso8601.parse_date(args["end"]) if "end" in args else None
+
+        events = current_app.api.get_dashboard_events(
+            start=start, end=end
+        )
+        return events, 200
+
+@api.route("/0/dashboard/most_used_apps")
+class MostUsedAppsResource(Resource):
+    def get(self):
+        args = request.args
+        start = iso8601.parse_date(args["start"]) if "start" in args else None
+        end = iso8601.parse_date(args["end"]) if "end" in args else None
+
+        events = current_app.api.get_most_used_apps(
+            start=start, end=end
+        )
+        return events, 200
