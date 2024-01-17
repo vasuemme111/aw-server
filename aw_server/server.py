@@ -28,7 +28,7 @@ root = Blueprint("root", __name__, url_prefix="/")
 
 
 class AWFlask(Flask):
-    def __init__(    
+    def __init__(
         self,
         host: str,
         testing: bool,
@@ -40,7 +40,7 @@ class AWFlask(Flask):
     ):
         """
          Initialize server and register blueprints. This is called by : meth : ` Flask. __init__ ` but can be called multiple times to re - initialize the server at the same time
-         
+
          @param host - host to connect to e. g.
          @param testing - if True tests will be run in production mode
          @param storage_method - name of method used to store data
@@ -71,7 +71,7 @@ class AWFlask(Flask):
             storage_method = aw_datastore.get_storage_methods()["memory"]
         db = Datastore(storage_method, testing=testing)
         self.api = ServerAPI(db=db, testing=testing)
-
+        self.api.ralvie_server_queue.start()
         self.register_blueprint(root)
         self.register_blueprint(rest.blueprint)
         # self.register_blueprint(get_custom_static_blueprint(custom_static))
@@ -83,9 +83,9 @@ class CustomJSONProvider(flask.json.provider.DefaultJSONProvider):
     def default(self, obj, *args, **kwargs):
         """
          Convert datetime to ISO format. This is a workaround for Python 2. 7 and earlier which don't support ISO formatting.
-         
+
          @param obj - Object to convert to string. Can be any type but not all objects are supported.
-         
+
          @return String representation of the object or None if it can't be converted to a string ( in which case the object is returned as - is
         """
         try:
@@ -104,8 +104,8 @@ class CustomJSONProvider(flask.json.provider.DefaultJSONProvider):
 def static_root():
     """
      Serve static root page. This is used to serve static root page for application. You can use it in templates or any other way that you want to serve static root page.
-     
-     
+
+
      @return Response from server or None if request is not responded to by client or server side error ( 404
     """
     return current_app.send_static_file("index.html")
@@ -114,9 +114,9 @@ def static_root():
 def static_home_root(path):
     """
      Serve static home root. This is the root of the application's static files. By default it is the index. html page
-     
+
      @param path - path to the static root
-     
+
      @return response to the static root page with no Content - Type header set to application / x - www - form - urlencoded
     """
     return current_app.send_static_file("index.html")
@@ -126,9 +126,9 @@ def static_home_root(path):
 def static_css(path):
     """
      Send static CSS to client. This is a shortcut for : func : ` send_from_directory `
-     
+
      @param path - Path to css file.
-     
+
      @return HTML response from server or None if error occured ( 404 not found ). Example usage :. from werkzeug import static_
     """
     return send_from_directory(static_folder + "/css", path)
@@ -138,9 +138,9 @@ def static_css(path):
 def static_js(path):
     """
      Send static javascript to client. This is a shortcut for : func : ` send_from_directory `
-     
+
      @param path - Path to file relative to static folder
-     
+
      @return String of javascript to be sent to client Example :. from werkzeug. ext. http import static_
     """
     return send_from_directory(static_folder + "/js", path)
@@ -149,7 +149,7 @@ def static_js(path):
 def _config_cors(cors_origins: List[str], testing: bool):
     """
      Configure CORS to allow cross - origin requests. This is a helper function for _config_exameters which can be used to add additional origins to the CORS configuration
-     
+
      @param cors_origins - List of origins to allow
      @param testing - If True will use HTTP and HTTPS instead of
     """
@@ -174,7 +174,7 @@ def _config_cors(cors_origins: List[str], testing: bool):
 
 
 # Only to be called from aw_server.main function!
-def _start( 
+def _start(
     storage_method,
     host: str,
     port: int,
@@ -184,7 +184,7 @@ def _start(
 ):
     """
      Start the Flask application. This is a wrapper around AWFlask to allow us to run in a subprocess
-     
+
      @param storage_method - Storage method to use for the app
      @param host - Host to connect to e. g. " localhost "
      @param port - Port to connect to e. g. 802. 151
