@@ -235,14 +235,16 @@ class ServerAPI:
     def sync_events_to_ralvie(self):
         try:
             userId = load_key("userId")
+            if not userId:
+                time.sleep(300)
             utc_now = datetime.utcnow()
             utc_now = utc_now.replace(tzinfo=pytz.utc)
 
             # Calculate start time (20 minutes less than current UTC time)
-            start_time = utc_now - timedelta(minutes=10)
+            start_time = utc_now - timedelta(minutes=5)
 
             # Calculate end time (10 minutes less than current UTC time)
-            end_time = utc_now - timedelta(minutes=5)
+            end_time = utc_now
             data = self.get_dashboard_events(start_time, end_time)
             if(data and data["events"] and userId):
                 print("total events: ",len(data["events"]))
