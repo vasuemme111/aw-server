@@ -5,6 +5,8 @@ import logging
 from datetime import datetime, timedelta
 from pathlib import Path
 from socket import gethostname
+import threading
+import time
 
 from aw_core.cache import cache_user_credentials
 from aw_core.cache import *
@@ -17,7 +19,7 @@ from typing import (
     Union,
 )
 from uuid import uuid4
-from aw_core.util import decrypt_uuid, encrypt_uuid
+from aw_core.util import decrypt_uuid, encrypt_uuid, load_key
 
 import iso8601
 from aw_core.dirs import get_data_dir
@@ -26,6 +28,7 @@ from aw_core.models import Event
 from aw_query import query2
 from aw_transform import heartbeat_merge
 import keyring
+import pytz
 
 from .__about__ import __version__
 from .exceptions import NotFound
@@ -81,10 +84,10 @@ class ServerAPI:
     def __init__(self, db, testing) -> None:
         """
          Initialize the Sundial instance. This is the method that must be called by the user to initialize the Sundial instance
-         
+
          @param db - Database instance to use for communication
          @param testing - True if we are testing False otherwise.
-         
+
          @return A boolean indicating success or failure of the initialization. If True the instance will be initialized
         """
         cache_key = "sundial"
@@ -95,14 +98,15 @@ class ServerAPI:
         self.server_address = "{protocol}://{host}:{port}".format(
             protocol='http', host='14.97.160.178', port='9010'
         )
+        self.ralvie_server_queue = RalvieServerQueue(self)
 
     def save_settings(self, settings_id, settings_dict) -> None:
         """
          Save settings to the database. This is a low - level method for use by plugins that want to save settings to the database as part of their initialization and / or reinitialization.
-         
+
          @param settings_id - ID of the settings to save.
          @param settings_dict - Dictionary of settings to save. Keys must match the names of the settings in the dictionary.
-         
+
          @return True if successful False otherwise. Raises : py : exc : ` ~sqlalchemy. exc. IntegrityError ` if there is a problem
         """
         self.db.save_settings(settings_id=settings_id, settings_dict=settings_dict)
@@ -110,9 +114,9 @@ class ServerAPI:
     def get_settings(self, settings_id) -> Dict[str, Any]:
         """
          Retrieve settings from the database. This is a low - level method to be used by plugins that want to retrieve settings from the database.
-         
+
          @param settings_id - ID of the settings to retrieve.
-         
+
          @return Dictionary of settings. Keys are the names of the settings
         """
         return self.db.retrieve_settings(settings_id)
@@ -120,9 +124,9 @@ class ServerAPI:
     def _url(self, endpoint: str):
         """
          Generate URL for an API. This is used to generate the URL that will be used to access the API.
-         
+
          @param endpoint - The endpoint to access. Must be prefixed with the server address e. g.
-         
+
          @return The URL to access the API with the given endpoint
         """
         return f"{self.server_address}{endpoint}"
@@ -131,10 +135,10 @@ class ServerAPI:
     def _get(self, endpoint: str, params: Optional[dict] = None) -> req.Response:
         """
          Make a GET request to Cerebrum and return the response. This is a helper for _get_url and _get_url_with_params
-         
+
          @param endpoint - The endpoint to call e. g.
          @param params - A dictionary of key / value pairs to include in the request
-         
+
          @return A : class : ` Response `
         """
         headers = {"Content-type": "application/json", "charset": "utf-8"}
@@ -145,7 +149,7 @@ class ServerAPI:
 
     @always_raise_for_request_errors
     def _post(
-        
+
         self,
         endpoint: str,
         data: Union[List[Any], Dict[str, Any]],
@@ -153,11 +157,11 @@ class ServerAPI:
     ) -> req.Response:
         """
          Send a POST request to the API. This is a helper for : meth : ` _url ` to make it easier to use in conjunction with
-         
+
          @param endpoint - The endpoint to send the request to.
          @param data - The data to send as the body of the request.
          @param params - A dictionary of headers to add to the request.
-         
+
          @return The response from the request as a : class : ` req. Response `
         """
         headers = {"Content-type": "application/json", "charset": "utf-8"}
@@ -175,10 +179,10 @@ class ServerAPI:
     def _delete(self, endpoint: str, data: Any = dict()) -> req.Response:
         """
          Send a DELETE request to Cobbler. This is a helper method for : meth : ` delete_and_recover `.
-         
+
          @param endpoint - The endpoint to send the request to. E. g.
          @param data - The data to send as the body of the request.
-         
+
          @return A : class : ` req. Response ` object
         """
         headers = {"Content-type": "application/json"}
@@ -188,8 +192,8 @@ class ServerAPI:
     def init_db(self) -> bool:
         """
          Initialize the database. This is called after the connection has been established and all tables have been loaded.
-         
-         
+
+
          @return True if successful False if not ( in which case the database is in an error state
         """
         return self.db.init_db()
@@ -197,9 +201,9 @@ class ServerAPI:
     def create_user(self, user:Dict[str, Any]):
         """
          Create a user on behalf of the authenticated user. This is a POST request to the ` ` / web / user ` ` endpoint.
-         
+
          @param user - A dictionary containing the information to create the user on behalf of.
-         
+
          @return The response from the server that was received as part of the request
         """
         endpoint = f"/web/user"
@@ -208,9 +212,9 @@ class ServerAPI:
     def authorize(self, user:Dict[str, Any]):
         """
          Authorize a user. This is a POST request to the ` / web / user / authorize ` endpoint.
-         
+
          @param user - The user to authorize. See API docs for more information.
-         
+
          @return The response from the server. If there was an error the response will contain the error
         """
         endpoint = f"/web/user/authorize"
@@ -219,19 +223,42 @@ class ServerAPI:
     def create_company(self, user:Dict[str, Any], token):
         """
          Create a company for the user. This is a POST request to the ` / web / company ` endpoint.
-         
+
          @param user - Dictionary containing the user's data. See example below.
          @param token - Authorization token to use for this request. See example below.
-         
+
          @return A response from the server that contains the company ID
         """
         endpoint = f"/web/company"
         return self._post(endpoint , user, {"Authorization" : token})
 
+    def sync_events_to_ralvie(self):
+        try:
+            userId = load_key("userId")
+            if not userId:
+                time.sleep(300)
+            utc_now = datetime.utcnow()
+            utc_now = utc_now.replace(tzinfo=pytz.utc)
+
+            # Calculate start time (20 minutes less than current UTC time)
+            start_time = utc_now - timedelta(minutes=5)
+
+            # Calculate end time (10 minutes less than current UTC time)
+            end_time = utc_now
+            data = self.get_dashboard_events(start_time, end_time)
+            if(data and data["events"] and userId):
+                print("total events: ",len(data["events"]))
+                payload = {"userId" : userId, "events" : data["events"]}
+                endpoint = f"/web/event"
+                self._post(endpoint , payload)
+            time.sleep(300)
+        except Exception as e:
+            print(e)
+
     def get_user_credentials(self, userId, token):
         """
         Get credentials for a user. This is a wrapper around the get_credentials endpoint to provide access to the user '
-        
+
         @param userId
         @param token
         """
@@ -265,6 +292,7 @@ class ServerAPI:
                 "phone": phone,
                 "firstname": firstName,
                 "lastname": lastName,
+                "userId": userId,
             }
 
             store_credentials(cache_key, SD_KEYS)
@@ -288,8 +316,8 @@ class ServerAPI:
     def get_user_details(self):
         """
          Get details of user. This is used to populate the sundial page in the admin.
-         
-         
+
+
          @return Dictionary that contains email phone firstname and lastname
         """
         cache_key = "sundial"
@@ -312,8 +340,8 @@ class ServerAPI:
     def get_info(self) -> Dict[str, Any]:
         """
          Get information about the server. This is a dictionary that can be sent to the server to update the configuration.
-         
-         
+
+
          @return A dictionary that can be sent to the server to update
         """
         """Get server info"""
@@ -328,8 +356,8 @@ class ServerAPI:
     def get_buckets(self) -> Dict[str, Dict]:
         """
          Get all buckets from the database and add last_updated field to each bucket
-         
-         
+
+
          @return Dictionary of all buckets in the database with keys :
         """
         """Get dict {bucket_name: Bucket} of all buckets"""
@@ -350,9 +378,9 @@ class ServerAPI:
     def get_bucket_metadata(self, bucket_id: str) -> Dict[str, Any]:
         """
          Get metadata about a bucket. This is a wrapper around the Bucket. metadata method
-         
+
          @param bucket_id - The ID of the bucket to retrieve metadata about
-         
+
          @return A dictionary of key / value
         """
         """Get metadata about bucket."""
@@ -363,9 +391,9 @@ class ServerAPI:
     def export_bucket(self, bucket_id: str) -> Dict[str, Any]:
         """
          Export a bucket to a dataformat consistent across versions including all events. This is useful for exporting data that is in an unusual format such as JSON or JSON - serialized data.
-         
+
          @param bucket_id - The ID of the bucket to export.
-         
+
          @return The metadata associated with the bucket as a dictionary with keys ` events ` and ` dataformat `
         """
         """Export a bucket to a dataformat consistent across versions, including all events in it."""
@@ -379,8 +407,8 @@ class ServerAPI:
     def export_all(self) -> Dict[str, Any]:
         """
          Exports all buckets and their events to a format consistent across versions. This is useful for exporting a set of data that is stored in Amazon S3 and can be used to make sure they are in the correct format
-         
-         
+
+
          @return Dictionary of exported buckets
         """
         """Exports all buckets and their events to a format consistent across versions"""
@@ -397,7 +425,7 @@ class ServerAPI:
     def import_bucket(self, bucket_data: Any):
         """
          Import a bucket into the database. This is a wrapper around db. create_bucket to allow us to pass in bucket_data as a dict instead of a json object.
-         
+
          @param bucket_data - The data to import into the database
         """
         bucket_id = bucket_data["id"]
@@ -430,7 +458,7 @@ class ServerAPI:
     def import_all(self, buckets: Dict[str, Any]):
         """
          Import all buckets into the storage. This is a no - op if there are no buckets to import
-         
+
          @param buckets - A dictionary of bucket
         """
         # Import all buckets in the bucket
@@ -438,7 +466,7 @@ class ServerAPI:
             self.import_bucket(bucket)
 
     def create_bucket(
-        
+
         self,
         bucket_id: str,
         event_type: str,
@@ -481,7 +509,7 @@ class ServerAPI:
 
     @check_bucket_exists
     def update_bucket(
-        
+
         self,
         bucket_id: str,
         event_type: Optional[str] = None,
@@ -491,13 +519,13 @@ class ServerAPI:
     ) -> None:
         """
          Update bucket metadata. This is a low - level method that should be used by clients to keep track of changes to buckets.
-         
+
          @param bucket_id - Id of bucket to update. Must be unique within the bucket.
          @param event_type - Type of event that triggered this update.
          @param client - Client to send this update to. If not specified the default client will be used.
          @param hostname - Hostname associated with this update. If not specified the default hostname will be used.
          @param data - Dict of key / value pairs to send with this update.
-         
+
          @return ` ` None ` ` to indicate success or failure
         """
         self.db.update_bucket(
@@ -513,9 +541,9 @@ class ServerAPI:
     def delete_bucket(self, bucket_id: str) -> None:
         """
          Delete a bucket from the storage. This is a no - op if the bucket does not exist
-         
+
          @param bucket_id - The ID of the bucket to delete
-         
+
          @return None The response from the S3 server or None if the bucket doesn't
         """
         """Delete a bucket"""
@@ -531,10 +559,10 @@ class ServerAPI:
     ) -> Optional[Event]:
         """
          Get an event from a bucket. This is a GET request to the API
-         
+
          @param bucket_id - The ID of the bucket
          @param event_id - The ID of the event to retrieve
-         
+
          @return The event or None if not found ( error in json
         """
         logger.debug(
@@ -565,10 +593,10 @@ class ServerAPI:
     def create_events(self, bucket_id: str, events: List[Event]) -> Optional[Event]:
         """
          Create events for a bucket. This is a low - level method for use by clients that don't need to worry about event handling.
-         
+
          @param bucket_id - The bucket to create the events for
          @param events - A list of events to create
-         
+
          @return The newly created event or None if one was not
         """
         """Create events for a bucket. Can handle both single events and multiple ones.
@@ -578,7 +606,7 @@ class ServerAPI:
 
     @check_bucket_exists
     def get_eventcount(
-       
+
         self,
         bucket_id: str,
         start: Optional[datetime] = None,
@@ -586,11 +614,11 @@ class ServerAPI:
     ) -> int:
         """
          Get eventcount from a bucket. This is a low level method for getting the number of events in a bucket
-         
+
          @param bucket_id - The id of the bucket
          @param start - The start of the time range to retrieve events from
          @param end - The end of the time range to retrieve events from
-         
+
          @return The number of events in the time range [ start end
         """
         logger.debug(f"Received get request for eventcount in bucket '{bucket_id}'")
@@ -600,10 +628,10 @@ class ServerAPI:
     def delete_event(self, bucket_id: str, event_id) -> bool:
         """
          Delete an event from a bucket. This is a destructive operation. You must be sure that there is no event in the bucket before you can delete it
-         
+
          @param bucket_id - The id of the bucket
          @param event_id - The id of the event
-         
+
          @return True if the event was deleted False if it was
         """
         """Delete a single event from a bucket"""
@@ -613,10 +641,10 @@ class ServerAPI:
     def heartbeat(self, bucket_id: str, heartbeat: Event, pulsetime: float) -> Event:
         """
          The event to send to the watcher. It must be a : class : ` ~swift. common. events. Event ` object
-         
+
          @param bucket_id - The bucket to send the heartbeat to
          @param pulsetime - The pulse time in seconds since the epoch.
-         
+
          @return The newly created or updated event that was sent to the
         """
         """
@@ -711,7 +739,7 @@ class ServerAPI:
     def query2(self, name, query, timeperiods, cache):
         """
          Queries the database for data. This is the second part of the : meth : ` ~oldman. query ` method.
-         
+
          @param name - The name of the database to query. This is used to create the query and to access the database in the cache.
          @param query - The query to be executed. This is a list of strings where each string is a field in the database and each field is a value in the form
          @param timeperiods
@@ -813,9 +841,9 @@ class ServerAPI:
 def datetime_serializer(obj):
     """
      Serialize datetime to ISO format. This is used to ensure that dates are converted to ISO format before saving to the database.
-     
+
      @param obj - The object to serialize. If it is a : class : ` datetime. datetime ` it will be returned as is.
-     
+
      @return The object serialized as ISO format or ` ` None
     """
     # Return the ISO 8601 format of the object.
@@ -825,10 +853,10 @@ def datetime_serializer(obj):
 def event_filter(most_used_apps,data):
     """
         Filter events to include only those that don't have lock apps or login windows
-        
+
         @param most_used_apps - list of apps that are most used
         @param data - list of events from json file that we want to filter
-        
+
         @return a list of formatted events for use in event_
     """
 
@@ -878,3 +906,47 @@ def event_filter(most_used_apps,data):
         }, default=datetime_serializer)
 
         return json.loads(events_json)  # Parse the JSON string to a Python object
+
+class RalvieServerQueue(threading.Thread):
+    def __init__(self, server: ServerAPI) -> None:
+        threading.Thread.__init__(self, daemon=True)
+
+        self.server = server
+        self.userId = ""
+        self.connected = False
+        self._stop_event = threading.Event()
+        self._attempt_reconnect_interval = 10
+
+    def _try_connect(self) -> bool:
+        try:  # Try to connect
+            db_key = ""
+            cache_key = "sundial"
+            cached_credentials = cache_user_credentials(cache_key,"SD_KEYS")
+            if cached_credentials != None:
+                db_key = cached_credentials.get("encrypted_db_key")
+            else:
+                db_key == None
+            key = load_key("user_key")
+            if db_key == None or key == None:
+                self.connected = False
+                return self.connected
+            self.userId = load_key("userId")
+            self.connected = True
+        except Exception:
+            self.connected = False
+
+        return self.connected
+
+    def wait(self, seconds) -> bool:
+        return self._stop_event.wait(seconds)
+
+    def should_stop(self) -> bool:
+        return self._stop_event.is_set()
+
+    def stop(self) -> None:
+        self._stop_event.set()
+
+    def run(self) -> None:
+        while True:
+            print("Inside run method")
+            self.server.sync_events_to_ralvie()
