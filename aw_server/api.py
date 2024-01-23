@@ -233,27 +233,23 @@ class ServerAPI:
         return self._post(endpoint , user, {"Authorization" : token})
 
     def sync_events_to_ralvie(self):
-        try:
-            userId = load_key("userId")
-            if not userId:
-                time.sleep(300)
-            utc_now = datetime.utcnow()
-            utc_now = utc_now.replace(tzinfo=pytz.utc)
-
-            # Calculate start time (20 minutes less than current UTC time)
-            start_time = utc_now - timedelta(minutes=5)
-
-            # Calculate end time (10 minutes less than current UTC time)
-            end_time = utc_now
-            data = self.get_dashboard_events(start_time, end_time)
-            if(data and data["events"] and userId):
-                print("total events: ",len(data["events"]))
-                payload = {"userId" : userId, "events" : data["events"]}
-                endpoint = f"/web/event"
-                self._post(endpoint , payload)
+        # try:
+        userId = load_key("userId")
+        if not userId:
             time.sleep(300)
-        except Exception as e:
-            print(e)
+        data = self.get_non_sync_events()
+        if(data and data["events"] and userId):
+            print("total events: ",len(data["events"]))
+            payload = {"userId" : userId, "events" : data["events"]}
+            endpoint = f"/web/event"
+            response = self._post(endpoint , payload)
+            if response.status_code == 200 and json.loads(response.text)["code"] == 'RCI0000':
+                event_ids = [obj['event_id'] for obj in data["events"]]
+                if(event_ids):
+                    self.db.update_server_sync_status(list_of_ids = event_ids, new_status = 1)
+        time.sleep(300)
+        # except Exception as e:
+        #     print(e)
 
     def get_user_credentials(self, userId, token):
         """
@@ -772,6 +768,28 @@ class ServerAPI:
         end: Optional[datetime] = None,
     ) -> List[Event]:
         events = self.db.get_dashboard_events(starttime=start,endtime=end)
+
+        if len(events) > 0:
+            event_start = parser.isoparse(events[0]["timestamp"])
+            start_hour = event_start.hour
+            start_min = event_start.minute
+            start_date_time = event_start
+
+            # Convert events list to JSON object using custom serializer
+            events_json = json.dumps({
+                "events": events,
+                "start_hour": start_hour,
+                "start_min": start_min,
+                "start_date_time": start_date_time
+            }, default=datetime_serializer)
+
+            return json.loads(events_json)
+        else: return None
+
+    def get_non_sync_events(
+        self
+    ) -> List[Event]:
+        events = self.db.get_non_sync_events()
 
         if len(events) > 0:
             event_start = parser.isoparse(events[0]["timestamp"])
