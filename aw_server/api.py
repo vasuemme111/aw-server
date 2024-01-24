@@ -664,6 +664,13 @@ class ServerAPI:
 
         Inspired by: https://wakatime.com/developers#heartbeats
         """
+        if heartbeat["data"]["app"] and heartbeat["data"]["app"] == "afk" and heartbeat["data"]["status"] == "afk":
+            store_credentials("is_afk", True)
+        elif heartbeat["data"]["app"] and heartbeat["data"]["app"] == "afk" and heartbeat["data"]["status"] != "afk":
+            store_credentials("is_afk", False)
+        if heartbeat["data"]["app"] and heartbeat["data"]["app"] != "afk"and get_credentials("is_afk"):
+            return heartbeat
+        
         logger.debug(
             "Received heartbeat in bucket '{}'\n\ttimestamp: {}, duration: {}, pulsetime: {}\n\tdata: {}".format(
                 bucket_id,
