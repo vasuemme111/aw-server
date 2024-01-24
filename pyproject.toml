@@ -24,6 +24,7 @@ pdfkit="*"
 xlsxwriter="*"
 tzlocal="*"
 xhtml2pdf="*"
+reportlab="*"
 
 [tool.poetry.dev-dependencies]
 mypy = "*"

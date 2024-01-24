@@ -7,7 +7,7 @@ from tzlocal import get_localzone
 from xhtml2pdf import pisa
 from aw_core.util import authenticate, is_internet_connected, reset_user
 import pandas as pd
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta, date, time
 import iso8601
 from aw_core import schema
 from aw_core.models import Event
@@ -820,40 +820,40 @@ class ExportAllResource(Resource):
 
         # Export and process data
         combined_events = []
-        buckets_export = current_app.api.export_all()
-        # Add events to combined_events.
-        for key, value in buckets_export.items():
-            combined_events.extend(value['events'])
+        if _day == "today":
+            day_start = datetime.combine(datetime.now(), time.min)
+            day_end = datetime.combine(datetime.now(), time.max)
+        else:
+            day_start = datetime.combine(datetime.now() - timedelta(days=1), time.min)
+            day_end = datetime.combine(datetime.now() - timedelta(days=1), time.max)
+
+        buckets_export = current_app.api.get_dashboard_events(day_start, day_end)
+        print(buckets_export)  # Debug: Print buckets_export to ensure it contains data.
+
+        if 'events' in buckets_export:
+            combined_events = buckets_export['events']
 
         df = pd.DataFrame(combined_events)[::-1]
-        df["datetime"] = pd.to_datetime(df["timestamp"], format='ISO8601')
+        print("------>",df)
+        df["datetime"] = pd.to_datetime(df["timestamp"], format='%Y-%m-%d %H:%M:%S.%f%z')
         system_timezone = get_localzone()
-
-        # Convert timestamps to the system's local time using pytz
         df["datetime"] = df["datetime"].dt.tz_convert(system_timezone)
-
-        # Returns a dataframe with the date of the current day.
         if _day == "today":
             df = df[df["datetime"].dt.date == datetime.now().date()]
         elif _day == "yesterday":
             df = df[df["datetime"].dt.date == (datetime.now() - timedelta(days=1)).date()]
 
-        # Format du
-        # Applying the format_duration function to the 'duration' column
         df["Time Spent"] = df["duration"].apply(lambda x: format_duration(x))
         df['Application Name'] = df['data'].apply(lambda x: x.get('app', 'Unknown'))
         df['Event Data'] = df['data'].apply(lambda x: x.get('title') if 'title' in x else x.get('status', ''))
-
         df["Event Timestamp"] = df["datetime"].dt.strftime('%H:%M:%S')
 
-        # Finalize DataFrame
         if 'id' in df.columns:
             df.drop('id', axis=1, inplace=True)
 
         df.insert(0, 'SL NO.', range(1, 1 + len(df)))
         df = df[['SL NO.', 'Application Name', 'Time Spent', 'Event Timestamp', 'Event Data']]
 
-        # Response object for export format
         if export_format == "csv":
             return self.create_csv_response(df)
         elif export_format == "excel":

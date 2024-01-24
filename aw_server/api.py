@@ -233,23 +233,23 @@ class ServerAPI:
         return self._post(endpoint , user, {"Authorization" : token})
 
     def sync_events_to_ralvie(self):
-        # try:
-        userId = load_key("userId")
-        if not userId:
+        try:
+            userId = load_key("userId")
+            if not userId:
+                time.sleep(300)
+            data = self.get_non_sync_events()
+            if(data and data["events"] and userId):
+                print("total events: ",len(data["events"]))
+                payload = {"userId" : userId, "events" : data["events"]}
+                endpoint = f"/web/event"
+                response = self._post(endpoint , payload)
+                if response.status_code == 200 and json.loads(response.text)["code"] == 'RCI0000':
+                    event_ids = [obj['event_id'] for obj in data["events"]]
+                    if(event_ids):
+                        self.db.update_server_sync_status(list_of_ids = event_ids, new_status = 1)
             time.sleep(300)
-        data = self.get_non_sync_events()
-        if(data and data["events"] and userId):
-            print("total events: ",len(data["events"]))
-            payload = {"userId" : userId, "events" : data["events"]}
-            endpoint = f"/web/event"
-            response = self._post(endpoint , payload)
-            if response.status_code == 200 and json.loads(response.text)["code"] == 'RCI0000':
-                event_ids = [obj['event_id'] for obj in data["events"]]
-                if(event_ids):
-                    self.db.update_server_sync_status(list_of_ids = event_ids, new_status = 1)
-        time.sleep(300)
-        # except Exception as e:
-        #     print(e)
+        except Exception as e:
+            logger.error(e)
 
     def get_user_credentials(self, userId, token):
         """
