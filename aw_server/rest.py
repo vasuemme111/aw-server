@@ -1,13 +1,10 @@
 import getpass
-import json
-import logging
 import traceback
 from functools import wraps
 from threading import Lock
 from typing import Dict
-import pdfkit
-import pytz
 from tzlocal import get_localzone
+from xhtml2pdf import pisa
 from aw_core.util import authenticate, is_internet_connected, reset_user
 import pandas as pd
 from datetime import datetime, timedelta, date
@@ -23,11 +20,8 @@ from flask import (
     make_response,
     request,
 )
-import os
 from flask_restx import Api, Resource, fields
 import jwt
-import keyring
-import sys
 from io import BytesIO
 from . import logger
 from .api import ServerAPI
@@ -40,9 +34,9 @@ manager = Manager()
 def host_header_check(f):
     """
         Check if token is valid. This is a decorator for API methods that need to be decorated in order to check the token in the Host header
-        
+
         @param f - function to be decorated with this
-        
+
         @return tuple of ( token error
     """
 
@@ -50,8 +44,8 @@ def host_header_check(f):
     def decorator(*args, **kwargs):
         """
          Decorate to check token. This is a decorator that can be used as a context manager or in a class decorator.
-         
-         
+
+
          @return tuple of JSON response and status code. If status code is 0 it means success
         """
         excluded_paths = [
@@ -156,9 +150,9 @@ query = api.model(
 def copy_doc(api_method):
     """
      Copy docstrings from another function to the decorated function. Used to copy docstrings in ServerAPI over to the flask - restplus Resources.
-     
+
      @param api_method - The method to copy the docstrings from.
-     
+
      @return A decorator that copies the docstrings from the decorated function
     """
     """Decorator that copies another functions docstring to the decorated function.
@@ -168,9 +162,9 @@ def copy_doc(api_method):
     def decorator(f):
         """
          Decorate a function to add documentation. This is useful for methods that are decorated with @api_method
-         
+
          @param f - The function to decorate.
-         
+
          @return The decorated function as a decorator ( not a decorator
         """
         f.__doc__ = api_method.__doc__
@@ -183,9 +177,9 @@ def copy_doc(api_method):
 def format_duration(duration):
     """
      Format duration in human readable format. This is used to format durations when logging to logcat
-     
+
      @param duration - The duration to format.
-     
+
      @return A string representing the duration in human readable format e. g
     """
     # Format duration in H m s format.
@@ -213,8 +207,8 @@ class InfoResource(Resource):
     def get(self) -> Dict[str, Dict]:
         """
          Get information about the application. This is a shortcut for : meth : ` flask. api. get_info `.
-         
-         
+
+
          @return A dictionary of application information or an empty dictionary if there is no information
         """
         return current_app.api.get_info()
@@ -229,8 +223,8 @@ class UserResource(Resource):
     def post(self):
         """
          Create a Sundial user. This is a POST request to the / v1 / users endpoint.
-         
-         
+
+
          @return a dictionary containing the user's details and a boolean indicating if the user was
         """
         cache_key = "sundial"
@@ -301,8 +295,8 @@ class CompanyResource(Resource):
     def post(self):
         """
          Create a company in UASI. This will be used for creating company in UASI.
-         
-         
+
+
          @return tuple of ( response status_code ) where response is empty if success or a dict with error
         """
         data = request.get_json()
@@ -334,8 +328,8 @@ class LoginResource(Resource):
     def post(self):
         """
          Authenticate and encode user credentials. This is a POST request to / api / v1 / sundial
-         
-         
+
+
          @return Response code and JSON
         """
         data = request.get_json()
@@ -358,8 +352,8 @@ class LoginResource(Resource):
     def get(self):
         """
          Get method for sundial. json API. This method is used to check if user exist or not.
-         
-         
+
+
          @return 200 if user exist 401 if user does not exist
         """
         data = request.get_json()
@@ -383,8 +377,8 @@ class RalvieLoginResource(Resource):
     def post(self):
         """
          Authenticate and log in a user. This is the endpoint for authenticating and log in a user.
-         
-         
+
+
          @return A JSON with the result of the authentication and user
         """
         cache_key = "sundial"
@@ -466,9 +460,9 @@ class EventsResource(Resource):
     def get(self, bucket_id):
         """
          Get events for a bucket. This endpoint is used to retrieve events that have been submitted to the API for a given bucket.
-         
+
          @param bucket_id - the id of the bucket to retrieve events for
-         
+
          @return a tuple of ( events status
         """
         args = request.args
@@ -487,9 +481,9 @@ class EventsResource(Resource):
     def post(self, bucket_id):
         """
          Create events in a bucket. This endpoint is used to create one or more events in a bucket.
-         
+
          @param bucket_id - ID of bucket to create events in
-         
+
          @return JSON representation of the created event or HTTP status code
         """
         data = request.get_json()
@@ -518,8 +512,8 @@ class BucketsResource(Resource):
     def get(self) -> Dict[str, Dict]:
         """
          Get all buckets. This is a shortcut to : meth : ` ~flask. api. Baskets. get_buckets `.
-         
-         
+
+
          @return A dictionary of bucket names and their values keyed by bucket
         """
         return current_app.api.get_buckets()
@@ -532,9 +526,9 @@ class BucketResource(Resource):
     def get(self, bucket_id):
         """
          Get metadata for a bucket. This is a GET request to the ` ` S3_bucket_metadata ` ` endpoint.
-         
+
          @param bucket_id - the ID of the bucket to get metadata for
-         
+
          @return a dict containing bucket metadata or None if not found
         """
         return current_app.api.get_bucket_metadata(bucket_id)
@@ -544,9 +538,9 @@ class BucketResource(Resource):
     def post(self, bucket_id):
         """
          Create a bucket. This endpoint requires authentication and will return a 204 if the bucket was created or a 304 if it already exists.
-         
+
          @param bucket_id - the id of the bucket to create
-         
+
          @return http code 200 if bucket was created 304 if it
         """
         data = request.get_json()
@@ -567,9 +561,9 @@ class BucketResource(Resource):
     def put(self, bucket_id):
         """
          Update a bucket. This endpoint is used to update an existing bucket. The request must be made with a JSON object in the body and the data field will be updated to the new data.
-         
+
          @param bucket_id - the ID of the bucket to update
-         
+
          @return a 200 response with the updated bucket or an error
         """
         data = request.get_json()
@@ -587,9 +581,9 @@ class BucketResource(Resource):
     def delete(self, bucket_id):
         """
          Delete a bucket. Only allowed if aw - server is running in testing mode
-         
+
          @param bucket_id - ID of bucket to delete
-         
+
          @return 200 if successful 404 if not ( or on error
         """
         args = request.args
@@ -620,9 +614,9 @@ class EventsResource(Resource):
     def get(self, bucket_id):
         """
          Get events for a bucket. This endpoint is used to retrieve events that have occurred since the last call to : func : ` ~flask. api. Bucket. create `.
-         
+
          @param bucket_id - the bucket to get events for.
-         
+
          @return 200 OK with events in JSON. Example request **. : http Example response **. :
         """
         args = request.args
@@ -641,9 +635,9 @@ class EventsResource(Resource):
     def post(self, bucket_id):
         """
          Create events in a bucket. This endpoint is used to create one or more events in a bucket.
-         
+
          @param bucket_id - ID of bucket to create events in
-         
+
          @return JSON representation of the created event or HTTP status code
         """
         data = request.get_json()
@@ -687,10 +681,10 @@ class EventResource(Resource):
     def get(self, bucket_id: str, event_id: int):
         """
          Get an event by bucket and event id. This is an endpoint for GET requests that need to be handled by the client.
-         
+
          @param bucket_id - ID of the bucket containing the event
          @param event_id - ID of the event to retrieve
-         
+
          @return A tuple of HTTP status code and the event if
         """
         logger.debug(
@@ -707,10 +701,10 @@ class EventResource(Resource):
     def delete(self, bucket_id: str, event_id: int):
         """
          Delete an event from a bucket. This is a DELETE request to / api / v1 / bucket_ids
-         
+
          @param bucket_id - ID of bucket to delete event from
          @param event_id - ID of event to delete from bucket
-         
+
          @return JSON with " success " as a boolean and " message " as
         """
         logger.debug(
@@ -739,9 +733,9 @@ class HeartbeatResource(Resource):
     def post(self, bucket_id):
         """
          Sends a heartbeat to Sundial. This is an endpoint that can be used to check if an event is active and if it is the case.
-         
+
          @param bucket_id - The ID of the bucket to send the heartbeat to.
-         
+
          @return 200 OK if heartbeats were sent 400 Bad Request if there is no credentials in
         """
         heartbeat = Event(**request.get_json())
@@ -784,8 +778,8 @@ class QueryResource(Resource):
     def post(self):
         """
          Query an API. This is a POST request to the API endpoint. The query is a JSON object with the following fields : query : the query to be executed timeperiods : the time periods of the query
-         
-         
+
+
          @return a JSON object with the results of the query or an error
         """
         name = ""
@@ -814,8 +808,8 @@ class ExportAllResource(Resource):
     def get(self):
         """
          Export events to CSV or CSV format. This endpoint is used to export events from the API and store them in a file for use in other endpoints.
-         
-         
+
+
          @return JSON or JSON - encoded data and status of the
         """
         export_format = request.args.get("format", "csv")
@@ -846,34 +840,47 @@ class ExportAllResource(Resource):
 
         # Format du
         # Applying the format_duration function to the 'duration' column
-        df["duration"] = df["duration"].apply(lambda x: format_duration(x))
+        df["Time Spent"] = df["duration"].apply(lambda x: format_duration(x))
         df['Application Name'] = df['data'].apply(lambda x: x.get('app', 'Unknown'))
         df['Event Data'] = df['data'].apply(lambda x: x.get('title') if 'title' in x else x.get('status', ''))
+
         df["Event Timestamp"] = df["datetime"].dt.strftime('%H:%M:%S')
 
         # Finalize DataFrame
-        # Drop id column in the dataframe.
         if 'id' in df.columns:
             df.drop('id', axis=1, inplace=True)
-        df.insert(0, 'SL NO.', range(1, 1 + len(df)))
-        df = df[['SL NO.', 'Application Name', 'duration', 'Event Timestamp', 'Event Data']]
 
-        # Returns a response object for the export format
+        df.insert(0, 'SL NO.', range(1, 1 + len(df)))
+        df = df[['SL NO.', 'Application Name', 'Time Spent', 'Event Timestamp', 'Event Data']]
+
+        # Response object for export format
         if export_format == "csv":
             return self.create_csv_response(df)
         elif export_format == "excel":
             return self.create_excel_response(df)
         elif export_format == "pdf":
-            return self.create_pdf_response(df, _day)
+            column_widths = {
+                'SL NO.': 50,
+                'Application Name': 150,
+                'Time Spent': 100,
+                'Event Timestamp': 150,
+                'Event Data': 300,
+            }
+            for column, width in column_widths.items():
+                df[column] = df[column].apply(
+                    lambda x: f'<div style="width: {width}px; word-wrap: break-word;">{x}</div>')
+            styled_df_html = df.to_html(index=False, escape=False, classes=['table', 'table-bordered'],
+                                        justify='center')
+            return self.create_pdf_response(styled_df_html, _day)
         else:
             return {"message": "Invalid export format"}, 400
 
     def create_csv_response(self, df):
         """
          Create a response that can be used to export a dataframe as a CSV.
-         
+
          @param df - The dataframe to export. Must be a : class : ` pandas. DataFrame ` instance.
-         
+
          @return A : class : ` werkzeug. http. Response ` instance
         """
         csv_buffer = BytesIO()
@@ -887,9 +894,9 @@ class ExportAllResource(Resource):
     def create_excel_response(self, df):
         """
          Create an excel response. This is a wrapper around pandas. to_excel to allow us to write a file to the user's browser
-         
+
          @param df - The dataframe to be exported
-         
+
          @return A WSGI response with the data in the excel
         """
         excel_buffer = BytesIO()
@@ -906,15 +913,15 @@ class ExportAllResource(Resource):
     def create_pdf_response(self, df, _day):
         """
          Create a PDF response. It is used to display sundial data in the web browser
-         
+
          @param df - A dataframe containing the sundial data
          @param _day - The day of the week that the df is in
-         
+
          @return A string containing the pdf data in the web browser
         """
         """
          Create a PDF response. It is used to display sundial data in the web browser
-         
+
          @param df - A dataframe containing the sundial data
          @param _day - The day of the week that the df
         """
@@ -923,24 +930,30 @@ class ExportAllResource(Resource):
         cached_credentials = cache_user_credentials(cache_key, "SD_KEYS")
         css = """
             <style type="text/css">
-                body{
+                body {
                     font-family: Cambria, Georgia, "Times New Roman", Times, serif;
+                    font-size: 10px; /* Adjust the font size as needed */
                 }
                 table {
-                    border-collapse: collapse;
-                    width: 100%;
+                    width: 100%; /* Adjust the table width as needed */
                     border: 1px solid #ddd;
                 }
                 th, td {
                     text-align: center;
-                    padding: 8px;
+                    padding: 5px; /* Adjust cell padding as needed */
+                }
+                th {
+                    background-color: #f2f2f2; /* Gray background for table header */
+                }
+                td {
+                    background-color: #fff; /* White background for table cells */
                 }
                 .header {
                     width: 100%;
                     text-align: center; /* Center logo */
                 }
                 .header img {
-                    width: 300px; /* Adjust as needed */
+                    width: 200px; /* Adjust as needed */
                 }
                 .text-container {
                     text-align: left;
@@ -962,35 +975,10 @@ class ExportAllResource(Resource):
             </div>
             """
 
-        html_data = df.to_html(index=False)
-        styled_html = f"{css}<body>{header}{html_data}</body>"
-
-        options = {
-            'page-size': 'Letter',
-            'margin-top': '0.75in',
-            'margin-right': '0.75in',
-            'margin-bottom': '0.75in',
-            'margin-left': '0.75in',
-            'encoding': "UTF-8",
-            'custom-header': [
-                ('Accept-Encoding', 'gzip')
-            ],
-            'no-outline': None
-        }
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        activitywatch_dir = os.path.dirname(os.path.dirname(current_dir))
-        # This function will return the pdfkit data from the Styled HTML.
-        if sys.platform == "win32":
-            pdfkit_config = pdfkit.configuration(wkhtmltopdf=activitywatch_dir + "/wkhtmltopdf.exe")
-            pdf_data = pdfkit.from_string(styled_html, False, options=options, configuration=pdfkit_config)
-        elif sys.platform=="darwin":
-            _module_dir = os.path.dirname(os.path.realpath(__file__))
-            print(_module_dir)
-            _parent_dir = os.path.abspath(os.path.join(_module_dir, os.pardir))
-            logger.warning(_parent_dir)
-            pdfkit_config = pdfkit.configuration(wkhtmltopdf=_parent_dir + "/wkhtmltopdf")
-            pdf_data = pdfkit.from_string(styled_html, False, options=options, configuration=pdfkit_config)
-        response = make_response(pdf_data)
+        styled_html = f"{css}<body>{header}{df}</body>"
+        buffer = BytesIO()
+        pdf = pisa.CreatePDF(BytesIO(styled_html.encode("UTF-8")), dest=buffer)
+        response = make_response(pdf.dest.getvalue())
         response.headers["Content-Type"] = "application/pdf"
         response.headers["Content-Disposition"] = "attachment; filename=aw_export.pdf"
         return response
@@ -1018,8 +1006,8 @@ class UserDetails(Resource):
     def get(self):
         """
          Get user details. This is a view that can be used to retrieve user details from the API.
-         
-         
+
+
          @return A dictionary of user details keyed by user id. Example request **. : http Example response **
         """
         user_details = current_app.api.get_user_details()
@@ -1033,8 +1021,8 @@ class ImportAllResource(Resource):
     def post(self):
         """
          Import buckets from json file or POST request. This is a REST API call
-         
-         
+
+
          @return 200 if successful 400 if
         """
         # If import comes from a form in th web-ui
@@ -1060,8 +1048,8 @@ class SaveSettings(Resource):
     def post(self):
         """
          Save settings to the database. This is a POST request to / api / v1 / settings
-         
-         
+
+
          @return 200 if successful 400 if
         """
         settings_id = 1
@@ -1092,8 +1080,8 @@ class LogResource(Resource):
     def get(self):
         """
          Get logs. This endpoint is used to retrieve log entries. The request must be made by the user to make an HTTP GET request.
-         
-         
+
+
          @return 200 OK with log ( dict ) 400 Bad Request if log does not
         """
         return current_app.api.get_log(), 200
@@ -1106,8 +1094,8 @@ class StartModule(Resource):
     def get(self):
         """
          Start modules on the server. This will return a message to the client indicating that the module has started.
-         
-         
+
+
          @return JSON with the message that was sent to the client
         """
         module_name = request.args.get("module")
@@ -1122,8 +1110,8 @@ class StopModule(Resource):
     def get(self):
         """
          Stop a module by name. This is a GET request to / v1 / modules / : id
-         
-         
+
+
          @return JSON with message to
         """
         module_name = request.args.get("module")
@@ -1137,8 +1125,8 @@ class Status(Resource):
     def get(self):
         """
          Get list of modules. This is a GET request to / modules. The response is a JSON object with a list of modules.
-         
-         
+
+
          @return a JSON object with a list of modules in the
         """
         modules = manager.status()
@@ -1152,8 +1140,8 @@ class User(Resource):
     def get(self):
         """
          Get information about the user. This is a GET request to the sundial API.
-         
-         
+
+
          @return JSON with firstname lastname and email or False if not
         """
         cache_key = "sundial"
@@ -1167,6 +1155,7 @@ class User(Resource):
                 {"firstName": cached_credentials.get("firstname"), "lastName": cached_credentials.get("lastname"),
                  "email": cached_credentials.get("email")})
 
+
 # BUCKETS
 
 @api.route("/0/dashboard/events")
@@ -1174,8 +1163,8 @@ class DashboardResource(Resource):
     def get(self):
         """
          Get dashboard events. GET / api / dashboards / [ id ]?start = YYYYMMDD&end = YYYYMMDD
-         
-         
+
+
          @return 200 on success 400 if not found 500 if other
         """
         args = request.args
@@ -1192,8 +1181,8 @@ class MostUsedAppsResource(Resource):
     def get(self):
         """
          Get most used apps. This will return a list of apps that have been used in the last 24 hours.
-         
-         
+
+
          @return 200 OK if everything worked else 500 Internal Server Error
         """
         args = request.args

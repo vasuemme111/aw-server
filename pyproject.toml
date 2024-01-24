@@ -23,6 +23,7 @@ pandas="*"
 pdfkit="*"
 xlsxwriter="*"
 tzlocal="*"
+xhtml2pdf="*"
 
 [tool.poetry.dev-dependencies]
 mypy = "*"
