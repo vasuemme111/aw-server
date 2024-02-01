@@ -1044,20 +1044,28 @@ class ImportAllResource(Resource):
 # LOGGING
 @api.route("/0/settings")
 class SaveSettings(Resource):
-    @copy_doc(ServerAPI.save_settings)
     def post(self):
         """
-         Save settings to the database. This is a POST request to / api / v1 / settings
+        Save settings to the database. This is a POST request to /api/v1/settings.
 
-
-         @return 200 if successful 400 if
+        @return: 200 if successful, 400 if there is an error.
         """
-        settings_id = 1
-        settings = request.get_json()  # This will parse JSON data sent in the request body
-        # Save settings to the database.
-        if settings:
-            # Assuming current_app.api.save_settings() is your method to save settings
-            return current_app.api.save_settings(settings_id, settings_dict=settings), 200
+        # Parse JSON data sent in the request body
+        data = request.get_json()
+        if data:
+            # Extract 'code' and 'value' from the parsed JSON
+            code = data['code']
+            value = data['value']
+
+            # Check if both 'code' and 'value' are present
+            if code is not None and value is not None:
+                # Save settings to the database
+                # Assuming current_app.api.save_settings() is your method to save settings
+                result = current_app.api.save_settings(code=code, value=json.dumps(value))
+                return result, 200  # Return the result with a 200 status code
+            else:
+                # Handle the case where 'code' or 'value' is missing in the JSON body
+                return {"message": "Both 'code' and 'value' must be provided"}, 400
         else:
             # Handle the case where no JSON is provided
             return {"message": "No settings provided"}, 400
@@ -1073,6 +1081,63 @@ class getSettings(Resource):
         settings_id = 1
         current_app.api.get_settings(settings_id)
 
+@api.route("/0/applicationsdetails")
+class SaveApplicationDetails(Resource):
+    @api.doc(security="Bearer")
+    @copy_doc(ServerAPI.save_application_details)
+    def post(self):
+        """
+        Save application details to the database. This is a POST request to /api/v0/applications.
+
+        @return: 200 if successful, 400 if there is an error.
+        """
+        # Parse JSON data sent in the request body
+        data = request.get_json()
+        if data:
+            # Extract necessary fields from the parsed JSON
+            name = data.get('name')
+            type = data.get('type')
+            alias = data.get('alias')
+            is_blocked = data.get('is_blocked', False)
+            is_ignore_idle_time = data.get('is_ignore_idle_time', False)
+            color = data.get('color')
+
+            # Check if the essential field 'name' is present
+            if name:
+                # Construct a dictionary with application details
+                application_details = {
+                    "name": name,
+                    "type": type,
+                    "alias": alias,
+                    "is_blocked": is_blocked,
+                    "is_ignore_idle_time": is_ignore_idle_time,
+                    "color": color
+                }
+
+                # Remove None values to avoid overwriting with None in the database
+                application_details = {k: v for k, v in application_details.items() if v is not None}
+
+                # Save application details to the database
+                # Assuming current_app.api.save_application_details() is your method to save application details
+                result = current_app.api.save_application_details(application_details)
+                return {"message": "Application details saved successfully", "result": result.json()}, 200  # Use .json() method to serialize the result
+            else:
+                # Handle the case where 'name' is missing in the JSON body
+                return {"message": "The 'name' field is required"}, 400
+        else:
+            # Handle the case where no JSON is provided
+            return {"message": "No application details provided"}, 400
+
+
+@api.route("/0/getapplicationdetails")
+class getapplicationdetails(Resource):
+    @copy_doc(ServerAPI.get_appication_details)
+    @api.doc(security="Bearer")
+    def get(self):
+        """
+         Get settings. This is a GET request to / api / v1 /
+        """
+        return current_app.api.get_appication_details()
 
 @api.route("/0/log")
 class LogResource(Resource):

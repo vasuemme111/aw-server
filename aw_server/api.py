@@ -100,7 +100,7 @@ class ServerAPI:
         )
         self.ralvie_server_queue = RalvieServerQueue(self)
 
-    def save_settings(self, settings_id, settings_dict) -> None:
+    def save_settings(self, code, value) -> None:
         """
          Save settings to the database. This is a low - level method for use by plugins that want to save settings to the database as part of their initialization and / or reinitialization.
 
@@ -109,9 +109,9 @@ class ServerAPI:
 
          @return True if successful False otherwise. Raises : py : exc : ` ~sqlalchemy. exc. IntegrityError ` if there is a problem
         """
-        self.db.save_settings(settings_id=settings_id, settings_dict=settings_dict)
+        self.db.save_settings(code=code,value=value)
 
-    def get_settings(self, settings_id) -> Dict[str, Any]:
+    def get_settings(self, code) -> Dict[str, Any]:
         """
          Retrieve settings from the database. This is a low - level method to be used by plugins that want to retrieve settings from the database.
 
@@ -119,7 +119,14 @@ class ServerAPI:
 
          @return Dictionary of settings. Keys are the names of the settings
         """
-        return self.db.retrieve_settings(settings_id)
+        return self.db.retrieve_settings(code)
+
+    def save_application_details(self, application_details):
+        self.db.save_application_details(application_details=application_details)
+
+    def get_appication_details(self):
+        return self.db.retrieve_application_details()
+
 
     def _url(self, endpoint: str):
         """
@@ -318,14 +325,14 @@ class ServerAPI:
         """
         cache_key = "sundial"
         cached_credentials = get_credentials(cache_key)
-        settings_id = 1
-        image = self.db.retrieve_settings(settings_id)
+
+        image = self.db.retrieve_settings("profilePic")
         response_data = {"email": cached_credentials.get("email"), "phone": cached_credentials.get("phone"),
                          "firstname": cached_credentials.get("firstname"),
                          "lastname": cached_credentials.get("lastname")}
         # Set the image s profile image
         if image:
-            response_data['ProfileImage'] = image['ProfileImage']
+            response_data['ProfileImage'] = image
         else:
             response_data['ProfileImage'] = ""
         # Return cached credentials if cached credentials are not None.
