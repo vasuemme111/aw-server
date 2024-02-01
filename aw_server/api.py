@@ -677,7 +677,7 @@ class ServerAPI:
             store_credentials("is_afk", False)
         if heartbeat["data"]["app"] and heartbeat["data"]["app"] != "afk"and get_credentials("is_afk"):
             return heartbeat
-        
+
         logger.debug(
             "Received heartbeat in bucket '{}'\n\ttimestamp: {}, duration: {}, pulsetime: {}\n\tdata: {}".format(
                 bucket_id,
@@ -716,24 +716,24 @@ class ServerAPI:
                 if merged is not None:
                     # Heartbeat was merged into last_event
                     logger.debug(
-                        "Received valid heartbeat, merging. (bucket: {})".format(
-                            bucket_id
+                        "Received valid heartbeat, merging. (bucket: {}) (app: {})".format(
+                            bucket_id, merged["data"]["app"]
                         )
                     )
                     self.last_event[bucket_id] = merged
                     self.db[bucket_id].replace_last(merged)
                     return merged
                 else:
-                    logger.info(
-                        "Received heartbeat after pulse window, inserting as new event. (bucket: {})".format(
-                            bucket_id
+                    logger.debug(
+                        "Received heartbeat after pulse window, inserting as new event. (bucket: {}) (app: {})".format(
+                            bucket_id, heartbeat["data"]["app"]
                         )
                     )
             else:
                 logger.debug(
-                    "Received heartbeat with differing data, inserting as new event. (bucket: {})".format(
-                        bucket_id
-                    )
+                    "Received heartbeat with differing data, inserting as new event. (bucket: {}) (app: {})".format(
+                            bucket_id, heartbeat["data"]["app"]
+                        )
                 )
         else:
             logger.info(
@@ -783,6 +783,8 @@ class ServerAPI:
     ) -> List[Event]:
         events = self.db.get_dashboard_events(starttime=start,endtime=end)
 
+        # groupedEvents = group_events_by_application(events)
+
         if len(events) > 0:
             event_start = parser.isoparse(events[0]["timestamp"])
             start_hour = event_start.hour
@@ -794,7 +796,8 @@ class ServerAPI:
                 "events": events,
                 "start_hour": start_hour,
                 "start_min": start_min,
-                "start_date_time": start_date_time
+                "start_date_time": start_date_time,
+                # "groupedEvents" : groupedEvents
             }, default=datetime_serializer)
 
             return json.loads(events_json)
@@ -981,4 +984,40 @@ class RalvieServerQueue(threading.Thread):
     def run(self) -> None:
         while True:
             print("Inside run method")
-            self.server.sync_events_to_ralvie()
+            # self.server.sync_events_to_ralvie()
+            time.sleep(300)
+
+def group_events_by_application(events):
+    grouped_events = {}
+
+    for event in events:
+        timestamp = datetime.fromisoformat(event["start"])
+        rounded_timestamp = timestamp - timedelta(minutes=timestamp.minute % 30, seconds=timestamp.second, microseconds=timestamp.microsecond)
+        key = (event["application_name"], rounded_timestamp)
+
+        if key not in grouped_events:
+            grouped_events[key] = {
+                "application_name": event["application_name"],
+                "start": rounded_timestamp.isoformat() + "Z",
+                "end": rounded_timestamp + timedelta(minutes=30),
+                "total_duration": 0,
+                "events": []
+            }
+
+        grouped_events[key]["total_duration"] += event["duration"]
+        grouped_events[key]["events"].append({
+            "event_id": event["event_id"],
+            "duration": event["duration"],
+            "timestamp": event["timestamp"],
+            "data": event["data"],
+            "id": event["id"],
+            "bucket_id": event["bucket_id"],
+            "app": event["app"],
+            "title": event["title"],
+            "url": event["url"]
+        })
+
+    # Flatten the nested structure into a single list
+    result_list = list(grouped_events.values())
+
+    return result_list
