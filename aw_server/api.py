@@ -984,8 +984,7 @@ class RalvieServerQueue(threading.Thread):
     def run(self) -> None:
         while True:
             print("Inside run method")
-            # self.server.sync_events_to_ralvie()
-            time.sleep(300)
+            self.server.sync_events_to_ralvie()
 
 def group_events_by_application(events):
     grouped_events = {}
