@@ -828,13 +828,12 @@ class ExportAllResource(Resource):
             day_end = datetime.combine(datetime.now() - timedelta(days=1), time.max)
 
         buckets_export = current_app.api.get_dashboard_events(day_start, day_end)
-        print(buckets_export)  # Debug: Print buckets_export to ensure it contains data.
+         # Debug: Print buckets_export to ensure it contains data.
 
         if 'events' in buckets_export:
             combined_events = buckets_export['events']
 
         df = pd.DataFrame(combined_events)[::-1]
-        print("------>",df)
         df["datetime"] = pd.to_datetime(df["timestamp"], format='%Y-%m-%d %H:%M:%S.%f%z')
         system_timezone = get_localzone()
         df["datetime"] = df["datetime"].dt.tz_convert(system_timezone)
@@ -844,8 +843,8 @@ class ExportAllResource(Resource):
             df = df[df["datetime"].dt.date == (datetime.now() - timedelta(days=1)).date()]
 
         df["Time Spent"] = df["duration"].apply(lambda x: format_duration(x))
-        df['Application Name'] = df['data'].apply(lambda x: x.get('app', 'Unknown'))
-        df['Event Data'] = df['data'].apply(lambda x: x.get('title') if 'title' in x else x.get('status', ''))
+        df['Application Name'] = df['application_name']
+        df['Event Data'] = df['title'].astype(str)
         df["Event Timestamp"] = df["datetime"].dt.strftime('%H:%M:%S')
 
         if 'id' in df.columns:
@@ -866,9 +865,14 @@ class ExportAllResource(Resource):
                 'Event Timestamp': 150,
                 'Event Data': 300,
             }
+
+            # Apply the formatting to each cell
             for column, width in column_widths.items():
-                df[column] = df[column].apply(
-                    lambda x: f'<div style="width: {width}px; word-wrap: break-word;">{x}</div>')
+                if column in df.columns:  # Check if the column exists in your DataFrame
+                    df[column] = df[column].apply(
+                        lambda x: f'<div style="width: {width}px; display: inline-block; word-break: break-word;">{x}</div>')
+
+            # Convert the DataFrame to HTML
             styled_df_html = df.to_html(index=False, escape=False, classes=['table', 'table-bordered'],
                                         justify='center')
             return self.create_pdf_response(styled_df_html, _day)
@@ -936,17 +940,19 @@ class ExportAllResource(Resource):
                 }
                 table {
                     width: 100%; /* Adjust the table width as needed */
-                    border: 1px solid #ddd;
+                    border: 1px solid #000; /* Black border */
                 }
                 th, td {
                     text-align: center;
                     padding: 5px; /* Adjust cell padding as needed */
+                     /* Allow text to wrap within cells */
                 }
                 th {
                     background-color: #f2f2f2; /* Gray background for table header */
                 }
                 td {
                     background-color: #fff; /* White background for table cells */
+                    -pdf-word-wrap: CJK;
                 }
                 .header {
                     width: 100%;
@@ -976,6 +982,7 @@ class ExportAllResource(Resource):
             """
 
         styled_html = f"{css}<body>{header}{df}</body>"
+        print(styled_html)
         buffer = BytesIO()
         pdf = pisa.CreatePDF(BytesIO(styled_html.encode("UTF-8")), dest=buffer)
         response = make_response(pdf.dest.getvalue())
