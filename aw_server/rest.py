@@ -808,10 +808,8 @@ class ExportAllResource(Resource):
                      "date": "Date for which to export data (today, yesterday)"})
     def get(self):
         """
-         Export events to CSV or CSV format. This endpoint is used to export events from the API and store them in a file for use in other endpoints.
-
-
-         @return JSON or JSON - encoded data and status of the
+        Export events to CSV or CSV format. This endpoint is used to export events from the API and store them in a file for use in other endpoints.
+        @return JSON or JSON - encoded data and status of the
         """
         cache_key = "sundial"
         cached_credentials = cache_user_credentials(cache_key, "SD_KEYS")
@@ -831,7 +829,7 @@ class ExportAllResource(Resource):
             day_end = datetime.combine(datetime.now() - timedelta(days=1), time.max)
 
         buckets_export = current_app.api.get_dashboard_events(day_start, day_end)
-         # Debug: Print buckets_export to ensure it contains data.
+        # Debug: Print buckets_export to ensure it contains data.
 
         if 'events' in buckets_export:
             combined_events = buckets_export['events']
@@ -845,8 +843,12 @@ class ExportAllResource(Resource):
         elif _day == "yesterday":
             df = df[df["datetime"].dt.date == (datetime.now() - timedelta(days=1)).date()]
 
+        # Filter out events with "afk" or "Idle Time" in application_name or title
+        df = df[~df['application_name'].str.contains('afk', case=False) & ~df['title'].str.contains('Idle Time',
+                                                                                                    case=False)]
+
         df["Time Spent"] = df["duration"].apply(lambda x: format_duration(x))
-        df['Application Name'] = df['application_name']
+        df['Application Name'] = df['application_name'].str.capitalize()
         df['Event Data'] = df['title'].astype(str)
         df["Event Timestamp"] = df["datetime"].dt.strftime('%H:%M:%S')
 
@@ -857,9 +859,9 @@ class ExportAllResource(Resource):
         df = df[['SL NO.', 'Application Name', 'Time Spent', 'Event Timestamp', 'Event Data']]
 
         if export_format == "csv":
-            return self.create_csv_response(df,cached_credentials)
+            return self.create_csv_response(df, cached_credentials)
         elif export_format == "excel":
-            return self.create_excel_response(df,cached_credentials)
+            return self.create_excel_response(df, cached_credentials)
         elif export_format == "pdf":
             column_widths = {
                 'SL NO.': 50,
@@ -873,12 +875,13 @@ class ExportAllResource(Resource):
             for column, width in column_widths.items():
                 if column in df.columns:  # Check if the column exists in your DataFrame
                     df[column] = df[column].apply(
-                        lambda x: f'<div style="width: {width}px; display: inline-block; word-break: break-word;">{x}</div>')
+                        lambda
+                            x: f'<div style="width: {width}px; display: inline-block; word-break: break-word;">{x}</div>')
 
             # Convert the DataFrame to HTML
             styled_df_html = df.to_html(index=False, escape=False, classes=['table', 'table-bordered'],
                                         justify='center')
-            return self.create_pdf_response(styled_df_html, _day,cached_credentials)
+            return self.create_pdf_response(styled_df_html, _day, cached_credentials)
         else:
             return {"message": "Invalid export format"}, 400
 
