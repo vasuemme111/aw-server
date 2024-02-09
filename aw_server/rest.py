@@ -1053,6 +1053,8 @@ class ImportAllResource(Resource):
 # LOGGING
 @api.route("/0/settings")
 class SaveSettings(Resource):
+    @copy_doc(ServerAPI.save_settings)
+    @api.doc(security="Bearer")
     def post(self):
         """
         Save settings to the database. This is a POST request to /api/v1/settings.
@@ -1070,25 +1072,53 @@ class SaveSettings(Resource):
             if code is not None and value is not None:
                 # Save settings to the database
                 # Assuming current_app.api.save_settings() is your method to save settings
-                result = current_app.api.save_settings(code=code, value=json.dumps(value))
-                return result, 200  # Return the result with a 200 status code
+                result = current_app.api.save_settings(code=code, value=value)
+                
+                # Convert the result to a dictionary for serialization
+                result_dict = {
+                    "id": result.id,  # Assuming id is the primary key of SettingsModel
+                    "code": result.code,
+                    "value": result.value
+                }
+                
+                return result_dict, 200  # Return the result dictionary with a 200 status code
             else:
                 # Handle the case where 'code' or 'value' is missing in the JSON body
                 return {"message": "Both 'code' and 'value' must be provided"}, 400
         else:
             # Handle the case where no JSON is provided
             return {"message": "No settings provided"}, 400
+        
+@api.route("/0/settings/<string:code>")
+class DeleteSettings(Resource):
+    @copy_doc(ServerAPI.delete_settings)
+    @api.doc(security="Bearer")
+    def delete(self, code):
+        """
+        Delete settings from the database. This is a DELETE request to /api/v1/settings/{code}.
+
+        @param code: The code associated with the settings to be deleted.
+        @return: 200 if successful, 404 if settings not found.
+        """
+        # Delete settings from the database
+        # Assuming current_app.api.delete_settings() is your method to delete settings
+        result = current_app.api.delete_settings(code=code)
+        if result:
+            return {"message": "Settings deleted successfully", "code": code}, 200
+        else:
+            return {"message": f"No settings found with code '{code}'"}, 404
 
 
-@api.route("/0/getsettings")
-class getSettings(Resource):
+
+@api.route("/0/getsettings/<string:code>")
+class GetSettings(Resource):
     @copy_doc(ServerAPI.get_settings)
-    def get(self):
+    @api.doc(security="Bearer")
+    def get(self, code):
         """
-         Get settings. This is a GET request to / api / v1 /
+        Get settings. This is a GET request to /0/getsettings/{code}.
         """
-        settings_id = 1
-        current_app.api.get_settings(settings_id)
+        return current_app.api.get_settings(code)
 
 @api.route("/0/applicationsdetails")
 class SaveApplicationDetails(Resource):
@@ -1129,7 +1159,10 @@ class SaveApplicationDetails(Resource):
                 # Save application details to the database
                 # Assuming current_app.api.save_application_details() is your method to save application details
                 result = current_app.api.save_application_details(application_details)
-                return {"message": "Application details saved successfully", "result": result.json()}, 200  # Use .json() method to serialize the result
+                if result is not None:
+                    return {"message": "Application details saved successfully", "result": result.json()}, 200  # Use .json() method to serialize the result
+                else:
+                    return {"message": "Error saving application details"}, 500
             else:
                 # Handle the case where 'name' is missing in the JSON body
                 return {"message": "The 'name' field is required"}, 400
@@ -1147,6 +1180,29 @@ class getapplicationdetails(Resource):
          Get settings. This is a GET request to / api / v1 /
         """
         return current_app.api.get_appication_details()
+
+@api.route("/0/deleteapplication/<int:application_id>")
+class DeleteApplicationDetails(Resource):
+    @copy_doc(ServerAPI.delete_application_details)
+    @api.doc(security="Bearer")
+    def delete(self, application_id):
+        """
+        Delete application details. This is a DELETE request to /api/v1/deleteapplication/{application_name}
+        """
+        delete_app=current_app.api.delete_application_details(application_id)
+        if delete_app:
+            # Convert the ApplicationModel instance to a dictionary
+            delete_app_dict = {
+                    "name": delete_app.name,
+                    "type": delete_app.type,
+                    "alias": delete_app.alias,
+                    "is_blocked": delete_app.is_blocked,
+                    "is_ignore_idle_time": delete_app.is_ignore_idle_time,
+                    "color": delete_app.color
+                }
+            return {"message": "Application details deleted successfully", "result": delete_app_dict}, 200
+        else:
+            return {"message": "Error deleting application details"}, 500
 
 @api.route("/0/log")
 class LogResource(Resource):

@@ -109,7 +109,7 @@ class ServerAPI:
 
          @return True if successful False otherwise. Raises : py : exc : ` ~sqlalchemy. exc. IntegrityError ` if there is a problem
         """
-        self.db.save_settings(code=code,value=value)
+        return self.db.save_settings(code=code,value=value)
 
     def get_settings(self, code) -> Dict[str, Any]:
         """
@@ -119,13 +119,37 @@ class ServerAPI:
 
          @return Dictionary of settings. Keys are the names of the settings
         """
-        return self.db.retrieve_settings(code)
+        return self.db.retrieve_settings(code=code)
+    def update_settings(self,code,value):
+        return self.db.update_settings(code=code,value=value)
+    
+    def delete_settings(self,code):
+        return self.db.delete_settings(code=code)
 
     def save_application_details(self, application_details):
-        self.db.save_application_details(application_details=application_details)
-
+        try:
+            # Save application details to the database
+            saved_details = self.db.save_application_details(application_details)
+            return saved_details
+        except Exception:
+            # Handle the error
+            return None
     def get_appication_details(self):
         return self.db.retrieve_application_details()
+    
+    def update_application_details(self, application_id, update_details):
+        try:
+            update_details=self.db.update_application_details(application_id, update_details)
+            return update_details
+        except Exception:
+            return None
+
+    def delete_application_details(self,application_id):
+        try:
+            delete_app=self.db.delete_application_details(application_id)
+            return delete_app
+        except Exception:
+            return None
 
 
     def _url(self, endpoint: str):
