@@ -122,7 +122,7 @@ class ServerAPI:
         return self.db.retrieve_settings(code=code)
     def update_settings(self,code,value):
         return self.db.update_settings(code=code,value=value)
-    
+
     def delete_settings(self,code):
         return self.db.delete_settings(code=code)
 
@@ -136,7 +136,7 @@ class ServerAPI:
             return None
     def get_appication_details(self):
         return self.db.retrieve_application_details()
-    
+
     def update_application_details(self, application_id, update_details):
         try:
             update_details=self.db.update_application_details(application_id, update_details)
@@ -766,7 +766,7 @@ class ServerAPI:
                 )
             )
 
-        self.db[bucket_id].insert(heartbeat)
+        heartbeat = self.db[bucket_id].insert(heartbeat)
         self.last_event[bucket_id] = heartbeat
         return heartbeat
 
