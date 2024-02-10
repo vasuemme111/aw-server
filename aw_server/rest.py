@@ -765,7 +765,10 @@ class HeartbeatResource(Resource):
             event = current_app.api.heartbeat(bucket_id, heartbeat, pulsetime)
         finally:
             self.lock.release()
-        return event.to_json_dict(), 200
+        if event:
+            return event.to_json_dict(), 200
+        else:
+            return None, 200
 
 
 # QUERY
@@ -1073,14 +1076,14 @@ class SaveSettings(Resource):
                 # Save settings to the database
                 # Assuming current_app.api.save_settings() is your method to save settings
                 result = current_app.api.save_settings(code=code, value=value)
-                
+
                 # Convert the result to a dictionary for serialization
                 result_dict = {
                     "id": result.id,  # Assuming id is the primary key of SettingsModel
                     "code": result.code,
                     "value": result.value
                 }
-                
+
                 return result_dict, 200  # Return the result dictionary with a 200 status code
             else:
                 # Handle the case where 'code' or 'value' is missing in the JSON body
@@ -1088,7 +1091,7 @@ class SaveSettings(Resource):
         else:
             # Handle the case where no JSON is provided
             return {"message": "No settings provided"}, 400
-        
+
 @api.route("/0/settings/<string:code>")
 class DeleteSettings(Resource):
     @copy_doc(ServerAPI.delete_settings)
