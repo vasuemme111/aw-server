@@ -838,7 +838,13 @@ class ExportAllResource(Resource):
             combined_events = buckets_export['events']
 
         df = pd.DataFrame(combined_events)[::-1]
-        df["datetime"] = pd.to_datetime(df["timestamp"], format='%Y-%m-%d %H:%M:%S.%f%z')
+        # Remove microseconds from the timestamp string
+        df["datetime"] = df["timestamp"].apply(lambda x: datetime.strptime(x, '%Y-%m-%d %H:%M:%S.%f%z'))
+
+        # Convert to pandas datetime object
+        df["datetime"] = pd.to_datetime(df["datetime"])
+
+        # Convert to system timezone
         system_timezone = get_localzone()
         df["datetime"] = df["datetime"].dt.tz_convert(system_timezone)
         if _day == "today":
