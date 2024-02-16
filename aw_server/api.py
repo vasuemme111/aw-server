@@ -8,6 +8,7 @@ from socket import gethostname
 import threading
 import time
 
+from aw_core import db_cache
 from aw_core.cache import cache_user_credentials
 from aw_core.cache import *
 from typing import (
@@ -119,7 +120,11 @@ class ServerAPI:
 
          @return Dictionary of settings. Keys are the names of the settings
         """
-        return self.db.retrieve_settings(code=code)
+        return self.db.retrieve_setting(code=code)
+
+    def retrieve_all_settings(self):
+        return self.db.retrieve_all_settings()
+
     def update_settings(self,code,value):
         return self.db.update_settings(code=code,value=value)
 
@@ -137,9 +142,9 @@ class ServerAPI:
     def get_appication_details(self):
         return self.db.retrieve_application_details()
 
-    def update_application_details(self, application_id, update_details):
+    def update_application_details(self, update_details):
         try:
-            update_details=self.db.update_application_details(application_id, update_details)
+            update_details=self.db.update_application_details(update_details)
             return update_details
         except Exception:
             return None
@@ -151,6 +156,8 @@ class ServerAPI:
         except Exception:
             return None
 
+    def application_list(self):
+        return self.db.retrieve_application_names()
 
     def _url(self, endpoint: str):
         """
@@ -350,7 +357,7 @@ class ServerAPI:
         cache_key = "sundial"
         cached_credentials = get_credentials(cache_key)
 
-        image = self.db.retrieve_settings("profilePic")
+        image = self.db.retrieve_setting("profilePic")
         response_data = {"email": cached_credentials.get("email"), "phone": cached_credentials.get("phone"),
                          "firstname": cached_credentials.get("firstname"),
                          "lastname": cached_credentials.get("lastname")}
@@ -669,6 +676,7 @@ class ServerAPI:
         """
          The event to send to the watcher. It must be a : class : ` ~swift. common. events. Event ` object
 
+         @param heartbeat:
          @param bucket_id - The bucket to send the heartbeat to
          @param pulsetime - The pulse time in seconds since the epoch.
 
@@ -695,6 +703,31 @@ class ServerAPI:
 
         Inspired by: https://wakatime.com/developers#heartbeats
         """
+
+        app_status = db_cache.cache_data("application_cache")
+        if not app_status:
+            db_cache.cache_data("application_cache",self.db.retrieve_application_names())
+            app_status = db_cache.cache_data("application_cache")
+        app_name = heartbeat["data"].get("app")
+        if app_name:
+              # Adjusted to use the retrieve function
+            for app in app_status['app']:
+                name = app['name']
+                is_blocked = app['is_blocked']
+                if name == app_name and is_blocked:
+                    logger.info(f"Application {app_name} is blocked. Ignoring heartbeat.")
+                    return None  # Ignore the heartbeat for blocked applications
+
+    # Check if the URL is blocked
+        url = heartbeat["data"].get("url")
+        if url:  # Adjusted to use the retrieve function
+            for app in app_status['url']:
+                app_url = app['url']
+                is_blocked = app['is_blocked']
+                if url == app_url and is_blocked:
+                    logger.info(f"url {app_url} is blocked. Ignoring heartbeat.")
+                    return None
+
         if heartbeat["data"]["app"] and heartbeat["data"]["app"] == "afk" and heartbeat["data"]["status"] == "afk":
             store_credentials("is_afk", True)
         elif heartbeat["data"]["app"] and heartbeat["data"]["app"] == "afk" and heartbeat["data"]["status"] != "afk":
@@ -1044,3 +1077,5 @@ def group_events_by_application(events):
     result_list = list(grouped_events.values())
 
     return result_list
+
+

@@ -4,13 +4,15 @@ import traceback
 from functools import wraps
 from threading import Lock
 from typing import Dict
+
+import pytz
 from tzlocal import get_localzone
 from xhtml2pdf import pisa
 from aw_core.util import authenticate, is_internet_connected, reset_user
 import pandas as pd
 from datetime import datetime, timedelta, date, time
 import iso8601
-from aw_core import schema
+from aw_core import schema, db_cache
 from aw_core.models import Event
 from aw_core.cache import *
 from aw_query.exceptions import QueryException
@@ -29,6 +31,7 @@ from .api import ServerAPI
 from .exceptions import BadRequest, Unauthorized
 from aw_qt.manager import Manager
 
+application_cache_key = "application_cache"
 manager = Manager()
 
 
@@ -768,7 +771,7 @@ class HeartbeatResource(Resource):
         if event:
             return event.to_json_dict(), 200
         else:
-            return None, 200
+            return {"message": "Heartbeat failed."}, 200
 
 
 # QUERY
@@ -838,15 +841,11 @@ class ExportAllResource(Resource):
             combined_events = buckets_export['events']
 
         df = pd.DataFrame(combined_events)[::-1]
-        # Remove microseconds from the timestamp string
-        df["datetime"] = df["timestamp"].apply(lambda x: datetime.strptime(x, '%Y-%m-%d %H:%M:%S.%f%z'))
-
-        # Convert to pandas datetime object
-        df["datetime"] = pd.to_datetime(df["datetime"])
-
-        # Convert to system timezone
+        df["datetime"] = df["timestamp"].apply(lambda x: datetime.strptime(x[:-6], '%Y-%m-%d %H:%M:%S.%f'))
         system_timezone = get_localzone()
-        df["datetime"] = df["datetime"].dt.tz_convert(system_timezone)
+        df["datetime"] = df["datetime"].dt.tz_localize(None)
+        df["datetime"] = df["datetime"].dt.tz_localize(pytz.utc).dt.tz_convert(system_timezone)
+        # df["datetime"] = df["datetime"].dt.tz_convert(system_timezone)
         if _day == "today":
             df = df[df["datetime"].dt.date == datetime.now().date()]
         elif _day == "yesterday":
@@ -894,7 +893,7 @@ class ExportAllResource(Resource):
         else:
             return {"message": "Invalid export format"}, 400
 
-    def create_csv_response(self, df,user_details):
+    def create_csv_response(self, df, user_details):
         """
          Create a response that can be used to export a dataframe as a CSV.
 
@@ -906,11 +905,12 @@ class ExportAllResource(Resource):
         df.to_csv(csv_buffer, index=False)
         csv_buffer.seek(0)
         response = make_response(csv_buffer.getvalue())
-        response.headers["Content-Disposition"] = f"attachment; filename={user_details['firstname']}_{datetime.now()}.csv"
+        response.headers[
+            "Content-Disposition"] = f"attachment; filename={user_details['firstname']}_{datetime.now()}.csv"
         response.headers["Content-Type"] = "text/csv"
         return response
 
-    def create_excel_response(self, df,user_details):
+    def create_excel_response(self, df, user_details):
         """
          Create an excel response. This is a wrapper around pandas. to_excel to allow us to write a file to the user's browser
 
@@ -924,12 +924,13 @@ class ExportAllResource(Resource):
         excel_buffer.seek(0)
 
         response = make_response(excel_buffer.getvalue())
-        response.headers["Content-Disposition"] = f"attachment; filename={user_details['firstname']}_{datetime.now()}.xlsx"
+        response.headers[
+            "Content-Disposition"] = f"attachment; filename={user_details['firstname']}_{datetime.now()}.xlsx"
         response.headers["Content-Type"] = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
         return response
 
-    def create_pdf_response(self, df, _day,user_details):
+    def create_pdf_response(self, df, _day, user_details):
         """
          Create a PDF response. It is used to display sundial data in the web browser
 
@@ -998,7 +999,8 @@ class ExportAllResource(Resource):
         pdf = pisa.CreatePDF(BytesIO(styled_html.encode("UTF-8")), dest=buffer)
         response = make_response(pdf.dest.getvalue())
         response.headers["Content-Type"] = "application/pdf"
-        response.headers["Content-Disposition"] = f"attachment; filename={user_details['firstname']}_{datetime.now()}.pdf"
+        response.headers[
+            "Content-Disposition"] = f"attachment; filename={user_details['firstname']}_{datetime.now()}.pdf"
         return response
 
 
@@ -1074,20 +1076,22 @@ class SaveSettings(Resource):
         data = request.get_json()
         if data:
             # Extract 'code' and 'value' from the parsed JSON
-            code = data['code']
-            value = data['value']
-
+            code = data.get('code')
+            value = data.get('value')
+            print(type(value))
             # Check if both 'code' and 'value' are present
             if code is not None and value is not None:
-                # Save settings to the database
-                # Assuming current_app.api.save_settings() is your method to save settings
-                result = current_app.api.save_settings(code=code, value=value)
+                # Convert value to JSON string
+                value_json = value
 
-                # Convert the result to a dictionary for serialization
+                # Save settings to the database
+                result = current_app.api.save_settings(code=code, value=value_json)
+
+                # Prepare response dictionary
                 result_dict = {
                     "id": result.id,  # Assuming id is the primary key of SettingsModel
                     "code": result.code,
-                    "value": result.value
+                    "value": value_json  # Use the converted value
                 }
 
                 return result_dict, 200  # Return the result dictionary with a 200 status code
@@ -1097,6 +1101,28 @@ class SaveSettings(Resource):
         else:
             # Handle the case where no JSON is provided
             return {"message": "No settings provided"}, 400
+
+
+@api.route("/0/getsettings/")
+class retrieveSettings(Resource):
+    @copy_doc(ServerAPI.get_settings)
+    @api.doc(security="Bearer")
+    def delete(self):
+        """
+        Delete settings from the database. This is a DELETE request to /api/v1/settings/{code}.
+
+        @param code: The code associated with the settings to be deleted.
+        @return: 200 if successful, 404 if settings not found.
+        """
+        # Delete settings from the database
+        # Assuming current_app.api.delete_settings() is your method to delete settings
+        data = request.get_json()
+        code = data.get('code')
+        result = current_app.api.get_settings(code=code)
+        if result:
+            return {"message": "Settings deleted successfully", "code": code}, 200
+        else:
+            return {"message": f"No settings found with code '{code}'"}, 404
 
 @api.route("/0/settings/<string:code>")
 class DeleteSettings(Resource):
@@ -1119,15 +1145,36 @@ class DeleteSettings(Resource):
 
 
 
-@api.route("/0/getsettings/<string:code>")
-class GetSettings(Resource):
-    @copy_doc(ServerAPI.get_settings)
+@api.route("/0/getallsettings")
+class GetAllSettings(Resource):
+    @copy_doc(ServerAPI.retrieve_all_settings)
     @api.doc(security="Bearer")
-    def get(self, code):
+    def get(self):
         """
         Get settings. This is a GET request to /0/getsettings/{code}.
         """
-        return current_app.api.get_settings(code)
+        settings_dict = db_cache.cache_data("settings_cache")
+        if settings_dict is None:
+            db_cache.cache_data("settings_cache",current_app.api.retrieve_all_settings())
+            settings_dict = db_cache.cache_data("settings_cache")
+        print(settings_dict)
+        return settings_dict
+
+
+@api.route("/0/getschedule")
+class GetSchedule(Resource):
+    @copy_doc(ServerAPI.retrieve_all_settings)
+    @api.doc(security="Bearer")
+    def get(self):
+        """
+        Get settings. This is a GET request to /0/getsettings/{code}.
+        """
+        settings_dict = db_cache.cache_data("settings_cache")
+        if settings_dict is None:
+            db_cache.cache_data("settings_cache",current_app.api.retrieve_all_settings())
+            settings_dict = db_cache.cache_data("settings_cache")
+        return json.loads(settings_dict["weekdays_schedule"]),200
+
 
 @api.route("/0/applicationsdetails")
 class SaveApplicationDetails(Resource):
@@ -1144,6 +1191,7 @@ class SaveApplicationDetails(Resource):
         if data:
             # Extract necessary fields from the parsed JSON
             name = data.get('name')
+            url = data.get('url')
             type = data.get('type')
             alias = data.get('alias')
             is_blocked = data.get('is_blocked', False)
@@ -1151,30 +1199,28 @@ class SaveApplicationDetails(Resource):
             color = data.get('color')
 
             # Check if the essential field 'name' is present
-            if name:
-                # Construct a dictionary with application details
-                application_details = {
-                    "name": name,
-                    "type": type,
-                    "alias": alias,
-                    "is_blocked": is_blocked,
-                    "is_ignore_idle_time": is_ignore_idle_time,
-                    "color": color
-                }
+            # Construct a dictionary with application details
+            application_details = {
+                "name": name,
+                "url": url,
+                "type": type,
+                "alias": alias,
+                "is_blocked": is_blocked,
+                "is_ignore_idle_time": is_ignore_idle_time,
+                "color": color
+            }
 
-                # Remove None values to avoid overwriting with None in the database
-                application_details = {k: v for k, v in application_details.items() if v is not None}
+            # Remove None values to avoid overwriting with None in the database
+            application_details = {k: v for k, v in application_details.items() if v is not None}
 
-                # Save application details to the database
-                # Assuming current_app.api.save_application_details() is your method to save application details
-                result = current_app.api.save_application_details(application_details)
-                if result is not None:
-                    return {"message": "Application details saved successfully", "result": result.json()}, 200  # Use .json() method to serialize the result
-                else:
-                    return {"message": "Error saving application details"}, 500
+            # Save application details to the database
+            # Assuming current_app.api.save_application_details() is your method to save application details
+            result = current_app.api.save_application_details(application_details)
+            if result is not None:
+                return {"message": "Application details saved successfully",
+                        "result": result.json()}, 200  # Use .json() method to serialize the result
             else:
-                # Handle the case where 'name' is missing in the JSON body
-                return {"message": "The 'name' field is required"}, 400
+                return {"message": "Error saving application details"}, 500
         else:
             # Handle the case where no JSON is provided
             return {"message": "No application details provided"}, 400
@@ -1190,6 +1236,7 @@ class getapplicationdetails(Resource):
         """
         return current_app.api.get_appication_details()
 
+
 @api.route("/0/deleteapplication/<int:application_id>")
 class DeleteApplicationDetails(Resource):
     @copy_doc(ServerAPI.delete_application_details)
@@ -1198,20 +1245,21 @@ class DeleteApplicationDetails(Resource):
         """
         Delete application details. This is a DELETE request to /api/v1/deleteapplication/{application_name}
         """
-        delete_app=current_app.api.delete_application_details(application_id)
+        delete_app = current_app.api.delete_application_details(application_id)
         if delete_app:
             # Convert the ApplicationModel instance to a dictionary
             delete_app_dict = {
-                    "name": delete_app.name,
-                    "type": delete_app.type,
-                    "alias": delete_app.alias,
-                    "is_blocked": delete_app.is_blocked,
-                    "is_ignore_idle_time": delete_app.is_ignore_idle_time,
-                    "color": delete_app.color
-                }
+                "name": delete_app.name,
+                "type": delete_app.type,
+                "alias": delete_app.alias,
+                "is_blocked": delete_app.is_blocked,
+                "is_ignore_idle_time": delete_app.is_ignore_idle_time,
+                "color": delete_app.color
+            }
             return {"message": "Application details deleted successfully", "result": delete_app_dict}, 200
         else:
             return {"message": "Error deleting application details"}, 500
+
 
 @api.route("/0/log")
 class LogResource(Resource):
@@ -1273,6 +1321,29 @@ class Status(Resource):
         return jsonify(modules)
 
 
+@api.route('/0/idletime')
+class idletime(Resource):
+    @api.doc(security="Bearer")
+    def get(self):
+        """
+         Get list of modules. This is a GET request to / modules. The response is a JSON object with a list of modules.
+
+
+         @return a JSON object with a list of modules in the
+        """
+        module = manager.module_status("aw-watcher-afk")
+        if module["is_alive"]:
+            manager.stop("aw-watcher-afk")
+            message = "idle time is stoppped"
+            state = False
+        else:
+            manager.start("aw-watcher-afk")
+            message = "idle time is started"
+            state= True
+        current_app.api.save_settings("idle_time",state)
+        return {"message": message}, 200
+
+
 @api.route('/0/credentials')
 class User(Resource):
 
@@ -1315,6 +1386,7 @@ class DashboardResource(Resource):
         )
         return events, 200
 
+
 @api.route("/0/dashboard/most_used_apps")
 class MostUsedAppsResource(Resource):
     def get(self):
@@ -1332,3 +1404,17 @@ class MostUsedAppsResource(Resource):
             start=start, end=end
         )
         return events, 200
+
+
+@api.route("/0/applicationlist")
+class ApplicationListResource(Resource):
+    @copy_doc(ServerAPI.application_list)
+    def get(self):
+        applications = current_app.api.application_list()
+        return applications, 200
+
+@api.route("/0/idletimesettings")
+class IdletimeSettingsResource(Resource):
+    def get(self):
+        module = manager.module_status("aw-watcher-afk")
+        return module["is_alive"], 200
