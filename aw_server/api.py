@@ -274,7 +274,7 @@ class ServerAPI:
         try:
             userId = load_key("userId")
             if not userId:
-                time.sleep(300)
+                if not userId:
             data = self.get_non_sync_events()
             if(data and data["events"] and userId):
                 print("total events: ",len(data["events"]))

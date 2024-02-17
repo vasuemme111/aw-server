@@ -8,6 +8,8 @@ from typing import Dict
 import pytz
 from tzlocal import get_localzone
 from xhtml2pdf import pisa
+
+from aw_core.launch_start import launch_app, delete_launch_app
 from aw_core.util import authenticate, is_internet_connected, reset_user
 import pandas as pd
 from datetime import datetime, timedelta, date, time
@@ -852,8 +854,6 @@ class ExportAllResource(Resource):
             df = df[df["datetime"].dt.date == (datetime.now() - timedelta(days=1)).date()]
 
         # Filter out events with "afk" or "Idle Time" in application_name or title
-        df = df[~df['application_name'].str.contains('afk', case=False) & ~df['title'].str.contains('Idle Time',
-                                                                                                    case=False)]
 
         df["Time Spent"] = df["duration"].apply(lambda x: format_duration(x))
         df['Application Name'] = df['application_name'].str.capitalize()
@@ -1418,3 +1418,44 @@ class IdletimeSettingsResource(Resource):
     def get(self):
         module = manager.module_status("aw-watcher-afk")
         return module["is_alive"], 200
+
+@api.route("/0/launchOnStart")
+class LaunchOnStart(Resource):
+    def post(self):
+        status = request.json.get("status")
+        if status is None:
+            return {"error": "Status is required in the request body."}, 400
+
+        if status:
+            launch_app()
+            current_app.api.save_settings("launch", status)
+            return {"message": "Launch on start enabled."}, 200
+        else:
+            delete_launch_app()
+            current_app.api.save_settings("launch", status)
+            return {"message": "Launch on start disabled."}, 200
+
+
+@api.route("/0/launchOnStartStatus")
+class LaunchOnStartStatus(Resource):
+    def get(self):
+        service_name = "com.ralvie.sundial"
+        # Check the status of the service using launchctl
+        try:
+            # Run the 'launchctl list' command and capture its output
+            result = subprocess.run(['launchctl', 'list'], capture_output=True, text=True, check=True)
+
+            # Split the output into lines and iterate over them
+            for line in result.stdout.split('\n'):
+                # Check if the line contains the service name
+                if service_name in line:
+                    # If the service is found, return its status
+                    return "Running" if "PID" in line else "Not Running"
+
+            # If the service is not found in the output, return "Not Found"
+            return "Not Found"
+
+        except subprocess.CalledProcessError as e:
+            # If an error occurs, print the error message and return None
+            print(f"Error: {e}")
+            return None
