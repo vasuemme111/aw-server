@@ -738,42 +738,47 @@ class HeartbeatResource(Resource):
     @copy_doc(ServerAPI.heartbeat)
     def post(self, bucket_id):
         """
-         Sends a heartbeat to Sundial. This is an endpoint that can be used to check if an event is active and if it is the case.
-
-         @param bucket_id - The ID of the bucket to send the heartbeat to.
-
-         @return 200 OK if heartbeats were sent 400 Bad Request if there is no credentials in
+        Sends a heartbeat to Sundial. This is an endpoint that can be used to check if an event is active and if it is the case.
+        @param bucket_id - The ID of the bucket to send the heartbeat to.
+        @return 200 OK if heartbeats were sent 400 Bad Request if there is no credentials in
         """
-        heartbeat = Event(**request.get_json())
+        heartbeat_data = request.get_json()
+
+        if heartbeat_data['data']['title']=='':
+            heartbeat_data['data']['title']=heartbeat_data['data']['app']
+        
+        # Set default title using the value of 'app' attribute if it's not present in the data dictionary
+        heartbeat = Event(**heartbeat_data)
 
         cache_key = "sundial"
         cached_credentials = cache_user_credentials(cache_key, "SD_KEYS")
         # Returns cached credentials if cached credentials are not cached.
-        if cached_credentials == None:
-            return None
+        if cached_credentials is None:
+            return {"message": "No cached credentials."}, 400
+
         # The pulsetime parameter is required.
-        if "pulsetime" in request.args:
-            pulsetime = float(request.args["pulsetime"])
-        else:
-            raise BadRequest("MissingParameter", "Missing required parameter pulsetime")
+        pulsetime = float(request.args["pulsetime"]) if "pulsetime" in request.args else None
+        if pulsetime is None:
+            return {"message": "Missing required parameter pulsetime"}, 400
 
         # This lock is meant to ensure that only one heartbeat is processed at a time,
         # as the heartbeat function is not thread-safe.
         # This should maybe be moved into the api.py file instead (but would be very messy).
-        aquired = self.lock.acquire(timeout=1)
-        # Heartbeat lock is not aquired within a reasonable time
-        if not aquired:
+        if not self.lock.acquire(timeout=1):
             logger.warning(
-                "Heartbeat lock could not be aquired within a reasonable time, this likely indicates a bug."
+                "Heartbeat lock could not be acquired within a reasonable time, this likely indicates a bug."
             )
+            return {"message": "Failed to acquire heartbeat lock."}, 500
+
         try:
             event = current_app.api.heartbeat(bucket_id, heartbeat, pulsetime)
         finally:
             self.lock.release()
+
         if event:
             return event.to_json_dict(), 200
         else:
-            return {"message": "Heartbeat failed."}, 200
+            return {"message": "Heartbeat failed."}, 500
 
 
 # QUERY
