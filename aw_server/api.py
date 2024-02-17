@@ -709,6 +709,8 @@ class ServerAPI:
             db_cache.cache_data("application_cache",self.db.retrieve_application_names())
             app_status = db_cache.cache_data("application_cache")
         app_name = heartbeat["data"].get("app")
+        if app_name is not None:
+            app_name = app_name.replace('.exe', '').strip()
         if app_name:
               # Adjusted to use the retrieve function
             for app in app_status['app']:
@@ -723,7 +725,10 @@ class ServerAPI:
         if url:  # Adjusted to use the retrieve function
             for app in app_status['url']:
                 app_url = app['url']
+                if app_url is not None:
+                    app_url = app_url.replace('http://', '').replace('https://', '').strip()
                 is_blocked = app['is_blocked']
+                url = url.replace('http://', '').replace('https://', '').strip()
                 if url == app_url and is_blocked:
                     logger.info(f"url {app_url} is blocked. Ignoring heartbeat.")
                     return None
