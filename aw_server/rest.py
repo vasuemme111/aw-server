@@ -9,7 +9,8 @@ import pytz
 from tzlocal import get_localzone
 from xhtml2pdf import pisa
 
-from aw_core.launch_start import create_shortcut, delete_shortcut, get_status, launch_app, delete_launch_app
+from aw_core.launch_start import create_shortcut, delete_shortcut, launch_app, delete_launch_app, \
+    check_startup_status
 from aw_core.util import authenticate, is_internet_connected, reset_user
 import pandas as pd
 from datetime import datetime, timedelta, date, time
@@ -1344,7 +1345,7 @@ class idletime(Resource):
         else:
             manager.start("aw-watcher-afk")
             message = "idle time is started"
-            state= True
+            state = True
         current_app.api.save_settings("idle_time",state)
         return {"message": message}, 200
 
@@ -1458,27 +1459,6 @@ class LaunchOnStart(Resource):
 @api.route("/0/launchOnStartStatus")
 class LaunchOnStartStatus(Resource):
     def get(self):
-        if sys.platform == "darwin":
-            service_name = "com.ralvie.sundial"
-            # Check the status of the service using launchctl
-            try:
-                # Run the 'launchctl list' command and capture its output
-                result = subprocess.run(['launchctl', 'list'], capture_output=True, text=True, check=True)
+        return check_startup_status()
 
-                # Split the output into lines and iterate over them
-                for line in result.stdout.split('\n'):
-                    # Check if the line contains the service name
-                    if service_name in line:
-                        # If the service is found, return its status
-                        return "Running" if "PID" in line else "Not Running"
-
-                # If the service is not found in the output, return "Not Found"
-                return "Not Found"
-
-            except subprocess.CalledProcessError as e:
-                # If an error occurs, print the error message and return None
-                print(f"Error: {e}")
-                return None
-        elif sys.platform == "win32":
-            return get_status()
 
