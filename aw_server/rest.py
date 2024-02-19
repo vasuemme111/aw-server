@@ -859,7 +859,8 @@ class ExportAllResource(Resource):
         elif _day == "yesterday":
             df = df[df["datetime"].dt.date == (datetime.now() - timedelta(days=1)).date()]
 
-        # Filter out events with "afk" or "Idle Time" in application_name or title
+        # Filter out events with "afk" in application_name and replace it with "Idle Time"
+        df.loc[df['application_name'] == 'afk', 'application_name'] = 'Idle Time'
 
         df["Time Spent"] = df["duration"].apply(lambda x: format_duration(x))
         df['Application Name'] = df['application_name'].str.capitalize()
@@ -1340,11 +1341,11 @@ class idletime(Resource):
         module = manager.module_status("aw-watcher-afk")
         if module["is_alive"]:
             manager.stop("aw-watcher-afk")
-            message = "idle time is stoppped"
+            message = "idle time has stoppped"
             state = False
         else:
             manager.start("aw-watcher-afk")
-            message = "idle time is started"
+            message = "idle time has started"
             state = True
         current_app.api.save_settings("idle_time",state)
         return {"message": message}, 200
