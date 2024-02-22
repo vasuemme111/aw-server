@@ -705,35 +705,6 @@ class ServerAPI:
         Inspired by: https://wakatime.com/developers#heartbeats
         """
 
-        app_status = db_cache.cache_data("application_cache")
-        if not app_status:
-            db_cache.cache_data("application_cache",self.db.retrieve_application_names())
-            app_status = db_cache.cache_data("application_cache")
-        app_name = heartbeat["data"].get("app")
-        if app_name is not None:
-            app_name = app_name.replace('.exe', '').strip()
-        if app_name:
-              # Adjusted to use the retrieve function
-            for app in app_status['app']:
-                name = app['name']
-                is_blocked = app['is_blocked']
-                if name == app_name and is_blocked:
-                    logger.info(f"Application {app_name} is blocked. Ignoring heartbeat.")
-                    return None  # Ignore the heartbeat for blocked applications
-
-    # Check if the URL is blocked
-        url = heartbeat["data"].get("url")
-        if url:  # Adjusted to use the retrieve function
-            for app in app_status['url']:
-                app_url = app['url']
-                if app_url is not None:
-                    app_url = app_url.replace('http://', '').replace('https://', '').strip()
-                is_blocked = app['is_blocked']
-                url = url.replace('http://', '').replace('https://', '').strip()
-                if url == app_url and is_blocked:
-                    logger.info(f"url {app_url} is blocked. Ignoring heartbeat.")
-                    return None
-
         if heartbeat["data"]["app"] and heartbeat["data"]["app"] == "afk" and heartbeat["data"]["status"] == "afk":
             store_credentials("is_afk", True)
         elif heartbeat["data"]["app"] and heartbeat["data"]["app"] == "afk" and heartbeat["data"]["status"] != "afk":

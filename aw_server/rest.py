@@ -9,8 +9,7 @@ import pytz
 from tzlocal import get_localzone
 from xhtml2pdf import pisa
 
-from aw_core.launch_start import create_shortcut, delete_shortcut, launch_app, delete_launch_app, \
-    check_startup_status
+from aw_core.launch_start import create_shortcut, delete_shortcut, delete_launch_app, launch_app
 from aw_core.util import authenticate, is_internet_connected, reset_user
 import pandas as pd
 from datetime import datetime, timedelta, date, time
@@ -1373,24 +1372,52 @@ class User(Resource):
                  "email": cached_credentials.get("email")})
 
 
+def blocked_list():
+    # Initialize the blocked_apps dictionary with empty lists for 'app' and 'url'
+    blocked_apps = {"app": [], "url": []}
+
+    # Retrieve application blocking information from the cache
+    application_blocked = db_cache.retrieve(application_cache_key)
+
+    # Iterate over each application in the 'app' list
+    for app_info in application_blocked.get('app', []):
+        # Check if the application is blocked
+        if app_info.get('is_blocked', False):
+            # If the application is blocked, append its name to the 'app' list in blocked_apps
+            blocked_apps['app'].append(app_info['name'])
+
+    # Iterate over each URL entry in the 'url' list
+    for url_info in application_blocked.get('url', []):
+        # Check if the URL is blocked
+        if url_info.get('is_blocked', False):
+            # If the URL is blocked, append it to the 'url' list in blocked_apps
+            blocked_apps['url'].append(url_info['url'])
+
+    return blocked_apps
+
 # BUCKETS
 
 @api.route("/0/dashboard/events")
 class DashboardResource(Resource):
     def get(self):
         """
-         Get dashboard events. GET / api / dashboards / [ id ]?start = YYYYMMDD&end = YYYYMMDD
-
-
-         @return 200 on success 400 if not found 500 if other
+        Get dashboard events. GET /api/dashboards/[id]?start=YYYYMMDD&end=YYYYMMDD
+        @return 200 on success, 400 if not found, 500 if other
         """
         args = request.args
-        start = iso8601.parse_date(args["start"]) if "start" in args else None
-        end = iso8601.parse_date(args["end"]) if "end" in args else None
+        start = iso8601.parse_date(args.get("start")) if "start" in args else None
+        end = iso8601.parse_date(args.get("end")) if "end" in args else None
 
-        events = current_app.api.get_dashboard_events(
-            start=start, end=end
-        )
+        blocked_apps = blocked_list()  # Assuming this function returns a list of blocked events
+
+        events = current_app.api.get_dashboard_events(start=start, end=end)
+        print(events)
+        for i in range(len(events['events']) - 1, -1, -1):
+            event = events['events'][i]
+            if event['data']['app'] in blocked_apps['app']:
+                del events['events'][i]
+            if "url" in event['data'].keys() and event['data']['url'] in blocked_apps['url']:
+                del events['events'][i]
         return events, 200
 
 
@@ -1407,9 +1434,18 @@ class MostUsedAppsResource(Resource):
         start = iso8601.parse_date(args["start"]) if "start" in args else None
         end = iso8601.parse_date(args["end"]) if "end" in args else None
 
+        blocked_apps = blocked_list()
         events = current_app.api.get_most_used_apps(
             start=start, end=end
         )
+        print(events)
+        for i in range(len(events['most_used_apps']) - 1, -1, -1):
+            app_data = events['most_used_apps'][i]
+            if app_data['app'] in blocked_apps['app']:
+                del events['most_used_apps'][i]
+            if "url" in app_data.keys() and app_data['url'] in blocked_apps['url']:
+                del events['most_used_apps'][i]
+
         return events, 200
 
 
@@ -1457,9 +1493,5 @@ class LaunchOnStart(Resource):
                 return {"message": "Launch on start disabled."}, 200
 
 
-@api.route("/0/launchOnStartStatus")
-class LaunchOnStartStatus(Resource):
-    def get(self):
-        return check_startup_status()
 
 
