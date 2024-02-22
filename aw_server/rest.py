@@ -1411,13 +1411,13 @@ class DashboardResource(Resource):
         blocked_apps = blocked_list()  # Assuming this function returns a list of blocked events
 
         events = current_app.api.get_dashboard_events(start=start, end=end)
-        print(events)
-        for i in range(len(events['events']) - 1, -1, -1):
-            event = events['events'][i]
-            if event['data']['app'] in blocked_apps['app']:
-                del events['events'][i]
-            if "url" in event['data'].keys() and event['data']['url'] in blocked_apps['url']:
-                del events['events'][i]
+        if events:
+            for i in range(len(events['events']) - 1, -1, -1):
+                event = events['events'][i]
+                if event['data']['app'] in blocked_apps['app']:
+                    del events['events'][i]
+                if "url" in event['data'].keys() and event['data']['url'] in blocked_apps['url']:
+                    del events['events'][i]
         return events, 200
 
 
@@ -1438,13 +1438,13 @@ class MostUsedAppsResource(Resource):
         events = current_app.api.get_most_used_apps(
             start=start, end=end
         )
-        print(events)
-        for i in range(len(events['most_used_apps']) - 1, -1, -1):
-            app_data = events['most_used_apps'][i]
-            if app_data['app'] in blocked_apps['app']:
-                del events['most_used_apps'][i]
-            if "url" in app_data.keys() and app_data['url'] in blocked_apps['url']:
-                del events['most_used_apps'][i]
+        if events:
+            for i in range(len(events['most_used_apps']) - 1, -1, -1):
+                app_data = events['most_used_apps'][i]
+                if app_data['app'] in blocked_apps['app']:
+                    del events['most_used_apps'][i]
+                if "url" in app_data.keys() and app_data['url'] in blocked_apps['url']:
+                    del events['most_used_apps'][i]
 
         return events, 200
 
