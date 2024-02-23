@@ -84,14 +84,14 @@ def _log_request_exception(e: req.RequestException):
 class ServerAPI:
     def __init__(self, db, testing) -> None:
         """
-         Initialize the Sundial instance. This is the method that must be called by the user to initialize the Sundial instance
+         Initialize the TTim instance. This is the method that must be called by the user to initialize the TTim instance
 
          @param db - Database instance to use for communication
          @param testing - True if we are testing False otherwise.
 
          @return A boolean indicating success or failure of the initialization. If True the instance will be initialized
         """
-        cache_key = "sundial"
+        cache_key = "TTim"
         cache_user_credentials(cache_key,"SD_KEYS")
         self.db = db
         self.testing = testing
@@ -298,7 +298,7 @@ class ServerAPI:
         @param token
         """
 
-        cache_key = "sundial"
+        cache_key = "TTim"
         endpoint = f"/web/user/{userId}/credentials"
         user_credentials = self._get(endpoint, {"Authorization": token})
 
@@ -350,12 +350,12 @@ class ServerAPI:
 
     def get_user_details(self):
         """
-         Get details of user. This is used to populate the sundial page in the admin.
+         Get details of user. This is used to populate the TTim page in the admin.
 
 
          @return Dictionary that contains email phone firstname and lastname
         """
-        cache_key = "sundial"
+        cache_key = "TTim"
         cached_credentials = get_credentials(cache_key)
 
         image = self.db.retrieve_setting("profilePic")
@@ -989,7 +989,7 @@ class RalvieServerQueue(threading.Thread):
     def _try_connect(self) -> bool:
         try:  # Try to connect
             db_key = ""
-            cache_key = "sundial"
+            cache_key = "TTim"
             cached_credentials = cache_user_credentials(cache_key,"SD_KEYS")
             if cached_credentials != None:
                 db_key = cached_credentials.get("encrypted_db_key")
