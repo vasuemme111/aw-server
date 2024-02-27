@@ -2,7 +2,7 @@ import functools
 from itertools import groupby
 import json
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from socket import gethostname
 import threading
@@ -274,21 +274,38 @@ class ServerAPI:
         try:
             userId = load_key("userId")
             if not userId:
-                if not userId:
-                    time.sleep(300)
+                time.sleep(300)
+                userId = load_key("userId")  # Load userId again after waiting if not already loaded
+
             data = self.get_non_sync_events()
-            if(data and data["events"] and userId):
-                print("total events: ",len(data["events"]))
-                payload = {"userId" : userId, "events" : data["events"]}
-                endpoint = f"/web/event"
-                response = self._post(endpoint , payload)
-                if response.status_code == 200 and json.loads(response.text)["code"] == 'RCI0000':
-                    event_ids = [obj['event_id'] for obj in data["events"]]
-                    if(event_ids):
-                        self.db.update_server_sync_status(list_of_ids = event_ids, new_status = 1)
-            time.sleep(300)
+
+            if data and data.get("events") and userId:  # Check if data and events are available
+                print("Total events:", len(data["events"]))
+
+                payload = {"userId": userId, "events": data["events"]}
+                endpoint = "/web/event"
+                response = self._post(endpoint, payload)
+
+                if response.status_code == 200:
+                    response_data = json.loads(response.text)
+                    if response_data.get("code") == 'RCI0000':
+                        event_ids = [obj['event_id'] for obj in data["events"]]
+                        if event_ids:
+                            self.db.update_server_sync_status(list_of_ids=event_ids, new_status=1)
+                            self.db.save_settings("last_sync_time", datetime.now(timezone.utc).astimezone().isoformat())
+                            return {"status": "success"}
+                        else:
+                            return {"status": "no_event_ids"}  # Return status in case of no event IDs
+                    else:
+                        # Log error when response code is not 'RCI0000'
+                        logger.error("Response code not as expected: %s", response_data.get("code"))
+                        return {"status": "unexpected_response_code"}  # Return status for unexpected response code
+            else:
+                return {"status": "Synced_already"}
         except Exception as e:
-            logger.error(e)
+            # Log the error occurred
+            logger.error("Error occurred during sync_events_to_ralvie: %s", e)
+            return {"status": "error_occurred"}  # Return status in case of exception
 
     def get_user_credentials(self, userId, token):
         """
@@ -1019,6 +1036,7 @@ class RalvieServerQueue(threading.Thread):
         while True:
             print("Inside run method")
             self.server.sync_events_to_ralvie()
+            time.sleep(300)
 
 def group_events_by_application(events):
     grouped_events = {}

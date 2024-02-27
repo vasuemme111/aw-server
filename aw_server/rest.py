@@ -1456,11 +1456,23 @@ class ApplicationListResource(Resource):
         applications = current_app.api.application_list()
         return applications, 200
 
-@api.route("/0/idletimesettings")
-class IdletimeSettingsResource(Resource):
+@api.route("/0/sync_server")
+class SyncServer(Resource):
     def get(self):
-        module = manager.module_status("aw-watcher-afk")
-        return module["is_alive"], 200
+        try:
+            status = current_app.api.sync_events_to_ralvie()
+
+            if status['status'] == "success":
+                return {"message": "Data has been synced successfully"}, 200
+            elif status['status'] == "Synced_already" or status['status'] == "no_event_ids":
+                return {"message": "Data has been synced already"}, 201
+            else:
+                return {"message": "Data has not been synced"}, 500
+        except Exception as e:
+            # Log the error and return a 500 status code
+            current_app.logger.error("Error occurred during sync_server: %s", e)
+            return {"message": "Internal server error"}, 500
+
 
 @api.route("/0/launchOnStart")
 class LaunchOnStart(Resource):
