@@ -20,7 +20,7 @@ from typing import (
     Union,
 )
 from uuid import uuid4
-from aw_core.util import decrypt_uuid, encrypt_uuid, load_key
+from aw_core.util import decrypt_uuid, encrypt_uuid, load_key, is_internet_connected
 
 import iso8601
 from aw_core.dirs import get_data_dir
@@ -1034,9 +1034,10 @@ class RalvieServerQueue(threading.Thread):
 
     def run(self) -> None:
         while True:
-            print("Inside run method")
-            self.server.sync_events_to_ralvie()
-            time.sleep(300)
+            if is_internet_connected():
+                print("Connected to internet")
+                self.server.sync_events_to_ralvie()
+                time.sleep(300)
 
 def group_events_by_application(events):
     grouped_events = {}

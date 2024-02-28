@@ -1378,20 +1378,24 @@ def blocked_list():
 
     # Retrieve application blocking information from the cache
     application_blocked = db_cache.retrieve(application_cache_key)
+    if not application_blocked:
+        db_cache.store(application_cache_key, current_app.api.application_list())
+    if application_blocked:
+        # Iterate over each application in the 'app' list
+        for app_info in application_blocked.get('app', []):
+            # Check if the application is blocked
+            if app_info.get('is_blocked', False):
+                # If the application is blocked, append its name to the 'app' list in blocked_apps
+                blocked_apps['app'].append(app_info['name'])
 
-    # Iterate over each application in the 'app' list
-    for app_info in application_blocked.get('app', []):
-        # Check if the application is blocked
-        if app_info.get('is_blocked', False):
-            # If the application is blocked, append its name to the 'app' list in blocked_apps
-            blocked_apps['app'].append(app_info['name'])
+        # Iterate over each URL entry in the 'url' list
+        for url_info in application_blocked.get('url', []):
+            # Check if the URL is blocked
+            if url_info.get('is_blocked', False):
+                # If the URL is blocked, append it to the 'url' list in blocked_apps
+                blocked_apps['url'].append(url_info['url'])
 
-    # Iterate over each URL entry in the 'url' list
-    for url_info in application_blocked.get('url', []):
-        # Check if the URL is blocked
-        if url_info.get('is_blocked', False):
-            # If the URL is blocked, append it to the 'url' list in blocked_apps
-            blocked_apps['url'].append(url_info['url'])
+    return blocked_apps
 
     return blocked_apps
 
