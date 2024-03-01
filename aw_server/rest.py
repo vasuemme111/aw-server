@@ -746,7 +746,7 @@ class HeartbeatResource(Resource):
 
         if heartbeat_data['data']['title']=='':
             heartbeat_data['data']['title']=heartbeat_data['data']['app']
-        
+
         # Set default title using the value of 'app' attribute if it's not present in the data dictionary
         heartbeat = Event(**heartbeat_data)
 
@@ -1206,6 +1206,8 @@ class SaveApplicationDetails(Resource):
 
             # Check if the essential field 'name' is present
             # Construct a dictionary with application details
+            if url:
+                url = url.replace("https://", "").replace("http://", "").replace("www.", "")
             application_details = {
                 "name": name,
                 "url": url,
@@ -1421,7 +1423,7 @@ class DashboardResource(Resource):
                 event = events['events'][i]
                 if event['data']['app'] in blocked_apps['app']:
                     del events['events'][i]
-                if "url" in event['data'].keys() and event['data']['url'] in blocked_apps['url']:
+                if "url" in event['data'].keys() and event['data']['url'].replace("https://", "").replace("http://", "").replace("www.", "") in blocked_apps['url']:
                     del events['events'][i]
         return events, 200
 
@@ -1484,7 +1486,7 @@ class LaunchOnStart(Resource):
     def post(self):
         status = request.json.get("status")
         if sys.platform == "darwin":
-            
+
             if status is None:
                 return {"error": "Status is required in the request body."}, 400
 
