@@ -1386,7 +1386,10 @@ def blocked_list():
             # Check if the application is blocked
             if app_info.get('is_blocked', False):
                 # If the application is blocked, append its name to the 'app' list in blocked_apps
-                blocked_apps['app'].append(app_info['name'])
+                app_name = app_info['name']
+                if platform.system() == 'Windows':
+                    app_name += ".exe"  # Append ".exe" for Windows
+                blocked_apps['app'].append(app_name)
 
         # Iterate over each URL entry in the 'url' list
         for url_info in application_blocked.get('url', []):
@@ -1394,8 +1397,6 @@ def blocked_list():
             if url_info.get('is_blocked', False):
                 # If the URL is blocked, append it to the 'url' list in blocked_apps
                 blocked_apps['url'].append(url_info['url'])
-
-    return blocked_apps
 
     return blocked_apps
 

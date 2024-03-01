@@ -96,8 +96,8 @@ class ServerAPI:
         self.db = db
         self.testing = testing
         self.last_event = {}  # type: dict
-        self.server_address = "{protocol}://{host}:{port}".format(
-            protocol='http', host='14.97.160.178', port='9010'
+        self.server_address = "{protocol}://{host}".format(
+            protocol='https', host='ralvie.minervaiotdev.com'
         )
         self.ralvie_server_queue = RalvieServerQueue(self)
 
