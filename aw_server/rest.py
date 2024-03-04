@@ -1248,8 +1248,6 @@ class SaveApplicationDetails(Resource):
 
             # Check if the essential field 'name' is present
             # Construct a dictionary with application details
-            if url:
-                url = url.replace("https://", "").replace("http://", "").replace("www.", "")
             application_details = {
                 "name": name,
                 "url": url,
@@ -1464,13 +1462,7 @@ class DashboardResource(Resource):
         if events:
             for i in range(len(events['events']) - 1, -1, -1):
                 event = events['events'][i]
-                if event['data']['app'] in blocked_apps['app']:
-                    del events['events'][i]
-<<<<<<< Updated upstream
-                if "url" in event['data'].keys() and event['data']['url'].replace("https://", "").replace("http://", "").replace("www.", "") in blocked_apps['url']:
-=======
                 if "url" in event['data'].keys() and event['data']['url'] and event['data'] ['url'].replace("https://","").replace("http://", "").replace("www.", "") in blocked_apps['url']:
->>>>>>> Stashed changes
                     del events['events'][i]
         return events, 200
 
@@ -1495,11 +1487,8 @@ class MostUsedAppsResource(Resource):
         if events:
             for i in range(len(events['most_used_apps']) - 1, -1, -1):
                 app_data = events['most_used_apps'][i]
-                if app_data['app'] in blocked_apps['app']:
-                    del events['most_used_apps'][i]
-            if "url" in app_data.keys() and app_data['url'] and app_data['url'].replace("https://",                                                                                    "").replace(
-                        "http://", "").replace("www.", "") in blocked_apps['url']:
-                    del app_data['most_used_apps'][i]
+                if "url" in app_data.keys() and app_data['url'] and app_data['url'].replace("https://",                                                        "").replace("http://", "").replace("www.", "") in blocked_apps['url']:
+                        del app_data['most_used_apps'][i]
 
         return events, 200
 
