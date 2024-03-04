@@ -342,7 +342,7 @@ class LoginResource(Resource):
         cache_key = "TTim"
         cached_credentials = cache_user_credentials(cache_key, "SD_KEYS")
         user_key = cached_credentials.get("user_key")
-        print(user_key)
+
         # Returns a JSON object with the user_key data.
         if user_key:
             # Authenticates the user with the given data.
@@ -812,7 +812,34 @@ class QueryResource(Resource):
 
 
 # EXPORT AND IMPORT
+def blocked_list():
+    # Initialize the blocked_apps dictionary with empty lists for 'app' and 'url'
+    blocked_apps = {"app": [], "url": []}
 
+    # Retrieve application blocking information from the cache
+    application_blocked = db_cache.retrieve(application_cache_key)
+    if not application_blocked:
+        db_cache.store(application_cache_key, current_app.api.application_list())
+
+    if application_blocked:
+        # Iterate over each application in the 'app' list
+        for app_info in application_blocked.get('app', []):
+            # Check if the application is blocked
+            if app_info.get('is_blocked', False):
+                # If the application is blocked, append its name to the 'app' list in blocked_apps
+                app_name = app_info['name']
+                if platform.system() == 'Windows':
+                    app_name += ".exe"  # Append ".exe" for Windows
+                blocked_apps['app'].append(app_name)
+
+        # Iterate over each URL entry in the 'url' list
+        for url_info in application_blocked.get('url', []):
+            # Check if the URL is blocked
+            if url_info.get('is_blocked', False):
+                # If the URL is blocked, append it to the 'url' list in blocked_apps
+                blocked_apps['url'].append(url_info['url'])
+
+    return blocked_apps
 
 @api.route("/0/export")
 class ExportAllResource(Resource):
@@ -826,8 +853,12 @@ class ExportAllResource(Resource):
         """
         cache_key = "TTim"
         cached_credentials = cache_user_credentials(cache_key, "SD_KEYS")
+        settings = db_cache.retrieve("settings_cache")
+
+
         export_format = request.args.get("format", "csv")
         _day = request.args.get("date", "today")
+
         # Invalid date parameter for day is not in today yesterday
         if _day not in ["today", "yesterday"]:
             return {"message": "Invalid date parameter"}, 400
@@ -842,17 +873,24 @@ class ExportAllResource(Resource):
             day_end = datetime.combine(datetime.now() - timedelta(days=1), time.max)
 
         buckets_export = current_app.api.get_dashboard_events(day_start, day_end)
-        # Debug: Print buckets_export to ensure it contains data.
+
 
         if 'events' in buckets_export:
-            combined_events = buckets_export['events']
+            # Filter out blocked events
+            blocked_events = blocked_list()  # Example blocked events
+            combined_events = [event for event in buckets_export['events'] if
+                               not (event.get('application_name') in blocked_events.get('app', []) or
+                                    event.get('url') in blocked_events.get('url', []))]
 
         df = pd.DataFrame(combined_events)[::-1]
-        df["datetime"] = df["timestamp"].apply(lambda x: datetime.strptime(x[:-6], '%Y-%m-%d %H:%M:%S.%f'))
-        system_timezone = get_localzone()
-        df["datetime"] = df["datetime"].dt.tz_localize(None)
-        df["datetime"] = df["datetime"].dt.tz_localize(pytz.utc).dt.tz_convert(system_timezone)
-        # df["datetime"] = df["datetime"].dt.tz_convert(system_timezone)
+        df["datetime"] = pd.to_datetime(df["timestamp"])
+
+        if not df.empty:
+            # Apply timezone conversion
+            timezone_offset = settings.get('time_zone', '+00:00')  # Default to UTC if not specified
+            system_timezone = pytz.FixedOffset(int(timezone_offset.replace(':', '')))
+            df["datetime"] = df["datetime"].dt.tz_convert(system_timezone)
+
         if _day == "today":
             df = df[df["datetime"].dt.date == datetime.now().date()]
         elif _day == "yesterday":
@@ -864,7 +902,12 @@ class ExportAllResource(Resource):
         df["Time Spent"] = df["duration"].apply(lambda x: format_duration(x))
         df['Application Name'] = df['application_name'].str.capitalize()
         df['Event Data'] = df['title'].astype(str)
-        df["Event Timestamp"] = df["datetime"].dt.strftime('%H:%M:%S')
+
+        timeformat = settings.get('timeformat', '12')
+        if timeformat == '12':
+            df["Event Timestamp"] = df["datetime"].dt.strftime('%I:%M:%S %p')
+        elif timeformat == '24':
+            df["Event Timestamp"] = df["datetime"].dt.strftime('%H:%M:%S')
 
         if 'id' in df.columns:
             df.drop('id', axis=1, inplace=True)
@@ -1084,7 +1127,6 @@ class SaveSettings(Resource):
             # Extract 'code' and 'value' from the parsed JSON
             code = data.get('code')
             value = data.get('value')
-            print(type(value))
             # Check if both 'code' and 'value' are present
             if code is not None and value is not None:
                 # Convert value to JSON string
@@ -1163,7 +1205,7 @@ class GetAllSettings(Resource):
         if settings_dict is None:
             db_cache.cache_data("settings_cache",current_app.api.retrieve_all_settings())
             settings_dict = db_cache.cache_data("settings_cache")
-        print(settings_dict)
+
         return settings_dict
 
 
@@ -1325,7 +1367,7 @@ class Status(Resource):
          @return a JSON object with a list of modules in the
         """
         modules = manager.status()
-        print(modules)
+
         return jsonify(modules)
 
 
@@ -1374,33 +1416,34 @@ class User(Resource):
                  "email": cached_credentials.get("email")})
 
 
-def blocked_list():
-    # Initialize the blocked_apps dictionary with empty lists for 'app' and 'url'
-    blocked_apps = {"app": [], "url": []}
-
-    # Retrieve application blocking information from the cache
-    application_blocked = db_cache.retrieve(application_cache_key)
-    if not application_blocked:
-        db_cache.store(application_cache_key, current_app.api.application_list())
-    if application_blocked:
-        # Iterate over each application in the 'app' list
-        for app_info in application_blocked.get('app', []):
-            # Check if the application is blocked
-            if app_info.get('is_blocked', False):
-                # If the application is blocked, append its name to the 'app' list in blocked_apps
-                app_name = app_info['name']
-                if platform.system() == 'Windows':
-                    app_name += ".exe"  # Append ".exe" for Windows
-                blocked_apps['app'].append(app_name)
-
-        # Iterate over each URL entry in the 'url' list
-        for url_info in application_blocked.get('url', []):
-            # Check if the URL is blocked
-            if url_info.get('is_blocked', False):
-                # If the URL is blocked, append it to the 'url' list in blocked_apps
-                blocked_apps['url'].append(url_info['url'])
-
-    return blocked_apps
+# def blocked_list():
+#     # Initialize the blocked_apps dictionary with empty lists for 'app' and 'url'
+#     blocked_apps = {"app": [], "url": []}
+#
+#     # Retrieve application blocking information from the cache
+#     application_blocked = db_cache.retrieve(application_cache_key)
+#     if not application_blocked:
+#         db_cache.store(application_cache_key, current_app.api.application_list())
+#     print("------>",application_blocked)
+#     if application_blocked:
+#         # Iterate over each application in the 'app' list
+#         for app_info in application_blocked.get('app', []):
+#             # Check if the application is blocked
+#             if app_info.get('is_blocked', False):
+#                 # If the application is blocked, append its name to the 'app' list in blocked_apps
+#                 app_name = app_info['name']
+#                 if platform.system() == 'Windows':
+#                     app_name += ".exe"  # Append ".exe" for Windows
+#                 blocked_apps['app'].append(app_name)
+#
+#         # Iterate over each URL entry in the 'url' list
+#         for url_info in application_blocked.get('url', []):
+#             # Check if the URL is blocked
+#             if url_info.get('is_blocked', False):
+#                 # If the URL is blocked, append it to the 'url' list in blocked_apps
+#                 blocked_apps['url'].append(url_info['url'])
+#
+#     return blocked_apps
 
 # BUCKETS
 
@@ -1423,7 +1466,11 @@ class DashboardResource(Resource):
                 event = events['events'][i]
                 if event['data']['app'] in blocked_apps['app']:
                     del events['events'][i]
+<<<<<<< Updated upstream
                 if "url" in event['data'].keys() and event['data']['url'].replace("https://", "").replace("http://", "").replace("www.", "") in blocked_apps['url']:
+=======
+                if "url" in event['data'].keys() and event['data']['url'] and event['data'] ['url'].replace("https://","").replace("http://", "").replace("www.", "") in blocked_apps['url']:
+>>>>>>> Stashed changes
                     del events['events'][i]
         return events, 200
 
@@ -1450,8 +1497,9 @@ class MostUsedAppsResource(Resource):
                 app_data = events['most_used_apps'][i]
                 if app_data['app'] in blocked_apps['app']:
                     del events['most_used_apps'][i]
-                if "url" in app_data.keys() and app_data['url'] in blocked_apps['url']:
-                    del events['most_used_apps'][i]
+            if "url" in app_data.keys() and app_data['url'] and app_data['url'].replace("https://",                                                                                    "").replace(
+                        "http://", "").replace("www.", "") in blocked_apps['url']:
+                    del app_data['most_used_apps'][i]
 
         return events, 200
 
