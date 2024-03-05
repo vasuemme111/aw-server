@@ -744,13 +744,8 @@ class HeartbeatResource(Resource):
         @return 200 OK if heartbeats were sent 400 Bad Request if there is no credentials in
         """
         heartbeat_data = request.get_json()
-        ap_name=heartbeat_data['data']['app'].split('.')[0]
-        ap_name111=heartbeat_data['data']['app']
-        if blocked_apps(ap_name=ap_name) is not True:
-            
-
-            if heartbeat_data['data']['title']=='':
-                heartbeat_data['data']['title']=heartbeat_data['data']['app']
+        if heartbeat_data['data']['title']=='':
+            heartbeat_data['data']['title']=heartbeat_data['data']['app']
 
             # Set default title using the value of 'app' attribute if it's not present in the data dictionary
             heartbeat = Event(**heartbeat_data)
@@ -779,15 +774,20 @@ class HeartbeatResource(Resource):
             finally:
                 self.lock.release()
 
-            if event:
-                return event.to_json_dict(), 200
-            elif not event:
-                return "event not occured"
-            else:
-                return {"message": "Heartbeat failed."}, 500
-        else:
-            return {"message":"Application was blocked"},200
-    
+        try:
+            event = current_app.api.heartbeat(bucket_id, heartbeat, pulsetime)
+        finally:
+            self.lock.release()
+
+        # if event:
+        #     return event.to_json_dict(), 200
+        # else:
+        #     return {"message": "Heartbeat failed."}, 500
+        try:
+            return event.to_json_dict(), 200
+        except:
+            logger.info('''event data has empty''')
+        
 
 
 # QUERY
@@ -1471,7 +1471,7 @@ class DashboardResource(Resource):
         if events:
             for i in range(len(events['events']) - 1, -1, -1):
                 event = events['events'][i]
-                if "url" in event['data'].keys() and event['data']['url'] and event['data'] ['url'].replace("https://","").replace("http://", "").replace("www.", "") in blocked_apps['url']:
+                if event['data']['app'] in blocked_apps['app'] or event['url'] in blocked_apps['url']:
                     del events['events'][i]
         return events, 200
 
