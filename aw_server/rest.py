@@ -507,7 +507,6 @@ class EventsResource(Resource):
             events = [Event(**e) for e in data]
         else:
             raise BadRequest("Invalid POST data", "")
-
         event = current_app.api.create_events(bucket_id, events)
         return event.to_json_dict() if event else None, 200
 
@@ -747,47 +746,40 @@ class HeartbeatResource(Resource):
         if heartbeat_data['data']['title']=='':
             heartbeat_data['data']['title']=heartbeat_data['data']['app']
 
-            # Set default title using the value of 'app' attribute if it's not present in the data dictionary
-            heartbeat = Event(**heartbeat_data)
+        # Set default title using the value of 'app' attribute if it's not present in the data dictionary
+        heartbeat = Event(**heartbeat_data)
 
-            cache_key = "TTim"
-            cached_credentials = cache_user_credentials(cache_key, "SD_KEYS")
-            # Returns cached credentials if cached credentials are not cached.
-            if cached_credentials is None:
-                return {"message": "No cached credentials."}, 400
+        cache_key = "TTim"
+        cached_credentials = cache_user_credentials(cache_key, "SD_KEYS")
+        # Returns cached credentials if cached credentials are not cached.
+        if cached_credentials is None:
+            return {"message": "No cached credentials."}, 400
 
-            # The pulsetime parameter is required.
-            pulsetime = float(request.args["pulsetime"]) if "pulsetime" in request.args else None
-            if pulsetime is None:
-                return {"message": "Missing required parameter pulsetime"}, 400
+        # The pulsetime parameter is required.
+        pulsetime = float(request.args["pulsetime"]) if "pulsetime" in request.args else None
+        if pulsetime is None:
+            return {"message": "Missing required parameter pulsetime"}, 400
 
-            # This lock is meant to ensure that only one heartbeat is processed at a time,
-            # as the heartbeat function is not thread-safe.
-            # This should maybe be moved into the api.py file instead (but would be very messy).
-            if not self.lock.acquire(timeout=1):
-                logger.warning(
-                    "Heartbeat lock could not be acquired within a reasonable time, this likely indicates a bug."
-                )
-                return {"message": "Failed to acquire heartbeat lock."}, 500
-            try:
-                event = current_app.api.heartbeat(bucket_id, heartbeat, pulsetime)
-            finally:
-                self.lock.release()
-
+        # This lock is meant to ensure that only one heartbeat is processed at a time,
+        # as the heartbeat function is not thread-safe.
+        # This should maybe be moved into the api.py file instead (but would be very messy).
+        if not self.lock.acquire(timeout=1):
+            logger.warning(
+                "Heartbeat lock could not be acquired within a reasonable time, this likely indicates a bug."
+            )
+            return {"message": "Failed to acquire heartbeat lock."}, 500
         try:
             event = current_app.api.heartbeat(bucket_id, heartbeat, pulsetime)
         finally:
             self.lock.release()
 
-        # if event:
-        #     return event.to_json_dict(), 200
-        # else:
-        #     return {"message": "Heartbeat failed."}, 500
-        try:
+        if event:
             return event.to_json_dict(), 200
-        except:
-            logger.info('''event data has empty''')
-        
+        elif not event:
+            return "event not occured"
+        else:
+            return {"message": "Heartbeat failed."}, 500
+    
 
 
 # QUERY
@@ -1468,10 +1460,15 @@ class DashboardResource(Resource):
         blocked_apps = blocked_list()  # Assuming this function returns a list of blocked events
 
         events = current_app.api.get_dashboard_events(start=start, end=end)
+        blocked_url=[u.split('//')[1] for u in blocked_apps['url']]
         if events:
             for i in range(len(events['events']) - 1, -1, -1):
                 event = events['events'][i]
-                if event['data']['app'] in blocked_apps['app'] or event['url'] in blocked_apps['url']:
+                # if "url" in event['data'].keys() and event['data']['url'] and event['data'] ['url'].replace("https://","").replace("http://", "").replace("www.", "") in blocked_apps['url']:
+                # print("blocked url",blocked_apps['url'])
+                if event['data']['app'] in blocked_apps['app']:
+                    del events['events'][i]
+                elif event['url'] in blocked_url:
                     del events['events'][i]
         return events, 200
 
