@@ -32,6 +32,7 @@ from . import logger
 from .api import ServerAPI
 from .exceptions import BadRequest, Unauthorized
 from aw_qt.manager import Manager
+from aw_datastore.storages.peewee import blocked_apps,blocked_url
 
 application_cache_key = "application_cache"
 manager = Manager()
@@ -743,42 +744,50 @@ class HeartbeatResource(Resource):
         @return 200 OK if heartbeats were sent 400 Bad Request if there is no credentials in
         """
         heartbeat_data = request.get_json()
+        ap_name=heartbeat_data['data']['app'].split('.')[0]
+        ap_name111=heartbeat_data['data']['app']
+        if blocked_apps(ap_name=ap_name) is not True:
+            
 
-        if heartbeat_data['data']['title']=='':
-            heartbeat_data['data']['title']=heartbeat_data['data']['app']
+            if heartbeat_data['data']['title']=='':
+                heartbeat_data['data']['title']=heartbeat_data['data']['app']
 
-        # Set default title using the value of 'app' attribute if it's not present in the data dictionary
-        heartbeat = Event(**heartbeat_data)
+            # Set default title using the value of 'app' attribute if it's not present in the data dictionary
+            heartbeat = Event(**heartbeat_data)
 
-        cache_key = "TTim"
-        cached_credentials = cache_user_credentials(cache_key, "SD_KEYS")
-        # Returns cached credentials if cached credentials are not cached.
-        if cached_credentials is None:
-            return {"message": "No cached credentials."}, 400
+            cache_key = "TTim"
+            cached_credentials = cache_user_credentials(cache_key, "SD_KEYS")
+            # Returns cached credentials if cached credentials are not cached.
+            if cached_credentials is None:
+                return {"message": "No cached credentials."}, 400
 
-        # The pulsetime parameter is required.
-        pulsetime = float(request.args["pulsetime"]) if "pulsetime" in request.args else None
-        if pulsetime is None:
-            return {"message": "Missing required parameter pulsetime"}, 400
+            # The pulsetime parameter is required.
+            pulsetime = float(request.args["pulsetime"]) if "pulsetime" in request.args else None
+            if pulsetime is None:
+                return {"message": "Missing required parameter pulsetime"}, 400
 
-        # This lock is meant to ensure that only one heartbeat is processed at a time,
-        # as the heartbeat function is not thread-safe.
-        # This should maybe be moved into the api.py file instead (but would be very messy).
-        if not self.lock.acquire(timeout=1):
-            logger.warning(
-                "Heartbeat lock could not be acquired within a reasonable time, this likely indicates a bug."
-            )
-            return {"message": "Failed to acquire heartbeat lock."}, 500
+            # This lock is meant to ensure that only one heartbeat is processed at a time,
+            # as the heartbeat function is not thread-safe.
+            # This should maybe be moved into the api.py file instead (but would be very messy).
+            if not self.lock.acquire(timeout=1):
+                logger.warning(
+                    "Heartbeat lock could not be acquired within a reasonable time, this likely indicates a bug."
+                )
+                return {"message": "Failed to acquire heartbeat lock."}, 500
+            try:
+                event = current_app.api.heartbeat(bucket_id, heartbeat, pulsetime)
+            finally:
+                self.lock.release()
 
-        try:
-            event = current_app.api.heartbeat(bucket_id, heartbeat, pulsetime)
-        finally:
-            self.lock.release()
-
-        if event:
-            return event.to_json_dict(), 200
+            if event:
+                return event.to_json_dict(), 200
+            elif not event:
+                return "event not occured"
+            else:
+                return {"message": "Heartbeat failed."}, 500
         else:
-            return {"message": "Heartbeat failed."}, 500
+            return {"message":"Application was blocked"},200
+    
 
 
 # QUERY
@@ -904,9 +913,9 @@ class ExportAllResource(Resource):
         df['Event Data'] = df['title'].astype(str)
 
         timeformat = settings.get('timeformat', '12')
-        if timeformat == '12':
+        if int(timeformat) == 12:
             df["Event Timestamp"] = df["datetime"].dt.strftime('%I:%M:%S %p')
-        elif timeformat == '24':
+        elif int(timeformat) == 24:
             df["Event Timestamp"] = df["datetime"].dt.strftime('%H:%M:%S')
 
         if 'id' in df.columns:
