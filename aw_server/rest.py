@@ -779,7 +779,7 @@ class HeartbeatResource(Resource):
             return "event not occured"
         else:
             return {"message": "Heartbeat failed."}, 500
-    
+
 
 
 # QUERY
@@ -1460,7 +1460,14 @@ class DashboardResource(Resource):
         blocked_apps = blocked_list()  # Assuming this function returns a list of blocked events
 
         events = current_app.api.get_dashboard_events(start=start, end=end)
-        blocked_url=[u.split('//')[1] for u in blocked_apps['url']]
+        blocked_url = []
+        for u in blocked_apps['url']:
+            if u is not None:
+                parts = u.split('//')
+                if len(parts) > 1:
+                    blocked_url.append(parts[1])
+                else:
+                    blocked_url.append(u)
         if events:
             for i in range(len(events['events']) - 1, -1, -1):
                 event = events['events'][i]
@@ -1494,7 +1501,7 @@ class MostUsedAppsResource(Resource):
             for i in range(len(events['most_used_apps']) - 1, -1, -1):
                 app_data = events['most_used_apps'][i]
                 if "url" in app_data.keys() and app_data['url'] and app_data['url'].replace("https://",                                                        "").replace("http://", "").replace("www.", "") in blocked_apps['url']:
-                        del app_data['most_used_apps'][i]
+                        del events['most_used_apps'][i]
 
         return events, 200
 
