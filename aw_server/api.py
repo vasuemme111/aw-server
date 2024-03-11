@@ -97,7 +97,7 @@ class ServerAPI:
         self.testing = testing
         self.last_event = {}  # type: dict
         self.server_address = "{protocol}://{host}".format(
-            protocol='https', host='ralvie.minervaiotdev.com'
+            protocol='https', host='ttim.minervaiotdev.com'
         )
         self.ralvie_server_queue = RalvieServerQueue(self)
 
