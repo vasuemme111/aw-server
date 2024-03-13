@@ -327,10 +327,10 @@ class ServerAPI:
             db_key = credentials_data["dbKey"]
             data_encryption_key = credentials_data["dataEncryptionKey"]
             user_key = credentials_data["userKey"]
-            email = user_data["email"]
-            phone = user_data["phone"]
-            firstName = user_data['firstName']
-            lastName = user_data['lastName']
+            email = user_data.get("email", None)
+            phone = user_data.get("phone", None)
+            firstName = user_data.get("firstName", None)
+            lastName = user_data.get("lastName", None)
             key = user_key
             encrypted_db_key = encrypt_uuid(db_key, key)
             encrypted_data_encryption_key = encrypt_uuid(data_encryption_key, key)
