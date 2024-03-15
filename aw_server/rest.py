@@ -812,6 +812,12 @@ class QueryResource(Resource):
             return {"type": type(qe).__name__, "message": str(qe)}, 400
 
 
+def removeprotocals(url):
+    parts = url.split('//')
+    if len(parts) > 1:
+        return parts[1]
+    else:
+        return url
 # EXPORT AND IMPORT
 def blocked_list():
     # Initialize the blocked_apps dictionary with empty lists for 'app' and 'url'
@@ -838,7 +844,7 @@ def blocked_list():
             # Check if the URL is blocked
             if url_info.get('is_blocked', False):
                 # If the URL is blocked, append it to the 'url' list in blocked_apps
-                blocked_apps['url'].append(url_info['url'])
+                blocked_apps['url'].append(removeprotocals(url_info['url']))
 
     return blocked_apps
 
@@ -1445,6 +1451,7 @@ class User(Resource):
 # BUCKETS
 
 @api.route("/0/dashboard/events")
+
 class DashboardResource(Resource):
     def get(self):
         """
@@ -1456,16 +1463,7 @@ class DashboardResource(Resource):
         end = iso8601.parse_date(args.get("end")) if "end" in args else None
 
         blocked_apps = blocked_list()  # Assuming this function returns a list of blocked events
-
         events = current_app.api.get_dashboard_events(start=start, end=end)
-        blocked_url = []
-        for u in blocked_apps['url']:
-            if u is not None:
-                parts = u.split('//')
-                if len(parts) > 1:
-                    blocked_url.append(parts[1])
-                else:
-                    blocked_url.append(u)
         if events:
             for i in range(len(events['events']) - 1, -1, -1):
                 event = events['events'][i]
@@ -1473,7 +1471,7 @@ class DashboardResource(Resource):
                 # print("blocked url",blocked_apps['url'])
                 if event['data']['app'] in blocked_apps['app']:
                     del events['events'][i]
-                elif event['url'] in blocked_url:
+                elif removeprotocals(event['url']) in blocked_apps['url']:
                     del events['events'][i]
         return events, 200
 
@@ -1498,7 +1496,7 @@ class MostUsedAppsResource(Resource):
         if events:
             for i in range(len(events['most_used_apps']) - 1, -1, -1):
                 app_data = events['most_used_apps'][i]
-                if "url" in app_data.keys() and app_data['url'] and app_data['url'].replace("https://",                                                        "").replace("http://", "").replace("www.", "") in blocked_apps['url']:
+                if "url" in app_data.keys() and app_data['url'] in blocked_apps['url']:
                         del events['most_used_apps'][i]
 
         return events, 200
