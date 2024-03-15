@@ -852,96 +852,94 @@ class ExportAllResource(Resource):
         Export events to CSV or CSV format. This endpoint is used to export events from the API and store them in a file for use in other endpoints.
         @return JSON or JSON - encoded data and status of the
         """
-        cache_key = "TTim"
-        cached_credentials = cache_user_credentials(cache_key, "SD_KEYS")
-        settings = db_cache.retrieve("settings_cache")
+        try:
+            cache_key = "TTim"
+            cached_credentials = cache_user_credentials(cache_key, "SD_KEYS")
+            settings = db_cache.retrieve("settings_cache")
 
+            export_format = request.args.get("format", "csv")
+            _day = request.args.get("date", "today")
 
-        export_format = request.args.get("format", "csv")
-        _day = request.args.get("date", "today")
+            # Invalid date parameter for day is not in today yesterday
+            if _day not in ["today", "yesterday"]:
+                return {"message": "Invalid date parameter"}, 400
 
-        # Invalid date parameter for day is not in today yesterday
-        if _day not in ["today", "yesterday"]:
-            return {"message": "Invalid date parameter"}, 400
+            # Export and process data
+            combined_events = []
+            if _day == "today":
+                day_start = datetime.combine(datetime.now(), time.min)
+                day_end = datetime.combine(datetime.now(), time.max)
+            else:
+                day_start = datetime.combine(datetime.now() - timedelta(days=1), time.min)
+                day_end = datetime.combine(datetime.now() - timedelta(days=1), time.max)
 
-        # Export and process data
-        combined_events = []
-        if _day == "today":
-            day_start = datetime.combine(datetime.now(), time.min)
-            day_end = datetime.combine(datetime.now(), time.max)
-        else:
-            day_start = datetime.combine(datetime.now() - timedelta(days=1), time.min)
-            day_end = datetime.combine(datetime.now() - timedelta(days=1), time.max)
+            buckets_export = current_app.api.get_dashboard_events(day_start, day_end)
 
-        buckets_export = current_app.api.get_dashboard_events(day_start, day_end)
+            if 'events' in buckets_export:
+                # Filter out blocked events
+                blocked_events = blocked_list()  # Example blocked events
+                combined_events = [event for event in buckets_export['events'] if
+                                   not (event.get('application_name') in blocked_events.get('app', []) or
+                                        event.get('url') in blocked_events.get('url', []))]
 
+            df = pd.DataFrame(combined_events)[::-1]
+            df["datetime"] = pd.to_datetime(df["timestamp"])
 
-        if 'events' in buckets_export:
-            # Filter out blocked events
-            blocked_events = blocked_list()  # Example blocked events
-            combined_events = [event for event in buckets_export['events'] if
-                               not (event.get('application_name') in blocked_events.get('app', []) or
-                                    event.get('url') in blocked_events.get('url', []))]
+            if not df.empty:
+                # Apply timezone conversion
+                timezone_offset = settings.get('time_zone', '+00:00')  # Default to UTC if not specified
+                df["datetime"] = df["datetime"].dt.tz_convert(timezone_offset)
 
-        df = pd.DataFrame(combined_events)[::-1]
-        df["datetime"] = pd.to_datetime(df["timestamp"])
+            if _day == "today":
+                df = df[df["datetime"].dt.date == datetime.now().date()]
+            elif _day == "yesterday":
+                df = df[df["datetime"].dt.date == (datetime.now() - timedelta(days=1)).date()]
 
-        if not df.empty:
-            # Apply timezone conversion
-            timezone_offset = settings.get('time_zone', '+00:00')  # Default to UTC if not specified
-            system_timezone = pytz.FixedOffset(int(timezone_offset.replace(':', '')))
-            df["datetime"] = df["datetime"].dt.tz_convert(system_timezone)
+            df["Time Spent"] = df["duration"].apply(lambda x: format_duration(x))
+            df['Application Name'] = df['application_name'].str.capitalize()
+            df['Event Data'] = df['title'].astype(str)
 
-        if _day == "today":
-            df = df[df["datetime"].dt.date == datetime.now().date()]
-        elif _day == "yesterday":
-            df = df[df["datetime"].dt.date == (datetime.now() - timedelta(days=1)).date()]
+            timeformat = settings.get('timeformat', '12')
+            if int(timeformat) == 12:
+                df["Event Timestamp"] = df["datetime"].dt.strftime('%I:%M:%S %p')
+            elif int(timeformat) == 24:
+                df["Event Timestamp"] = df["datetime"].dt.strftime('%H:%M:%S')
 
-        # Filter out events with "afk" in application_name and replace it with "Idle Time"
-        df.loc[df['application_name'] == 'afk', 'application_name'] = 'Idle Time'
+            if 'id' in df.columns:
+                df.drop('id', axis=1, inplace=True)
 
-        df["Time Spent"] = df["duration"].apply(lambda x: format_duration(x))
-        df['Application Name'] = df['application_name'].str.capitalize()
-        df['Event Data'] = df['title'].astype(str)
+            df.insert(0, 'SL NO.', range(1, 1 + len(df)))
+            df = df[['SL NO.', 'Application Name', 'Time Spent', 'Event Timestamp', 'Event Data']]
 
-        timeformat = settings.get('timeformat', '12')
-        if int(timeformat) == 12:
-            df["Event Timestamp"] = df["datetime"].dt.strftime('%I:%M:%S %p')
-        elif int(timeformat) == 24:
-            df["Event Timestamp"] = df["datetime"].dt.strftime('%H:%M:%S')
+            if export_format == "csv":
+                return self.create_csv_response(df, cached_credentials)
+            elif export_format == "excel":
+                return self.create_excel_response(df, cached_credentials)
+            elif export_format == "pdf":
+                column_widths = {
+                    'SL NO.': 50,
+                    'Application Name': 150,
+                    'Time Spent': 100,
+                    'Event Timestamp': 150,
+                    'Event Data': 300,
+                }
 
-        if 'id' in df.columns:
-            df.drop('id', axis=1, inplace=True)
+                # Apply the formatting to each cell
+                for column, width in column_widths.items():
+                    if column in df.columns:  # Check if the column exists in your DataFrame
+                        df[column] = df[column].apply(
+                            lambda
+                                x: f'<div style="width: {width}px; display: inline-block; word-break: break-word;">{x}</div>')
 
-        df.insert(0, 'SL NO.', range(1, 1 + len(df)))
-        df = df[['SL NO.', 'Application Name', 'Time Spent', 'Event Timestamp', 'Event Data']]
-
-        if export_format == "csv":
-            return self.create_csv_response(df, cached_credentials)
-        elif export_format == "excel":
-            return self.create_excel_response(df, cached_credentials)
-        elif export_format == "pdf":
-            column_widths = {
-                'SL NO.': 50,
-                'Application Name': 150,
-                'Time Spent': 100,
-                'Event Timestamp': 150,
-                'Event Data': 300,
-            }
-
-            # Apply the formatting to each cell
-            for column, width in column_widths.items():
-                if column in df.columns:  # Check if the column exists in your DataFrame
-                    df[column] = df[column].apply(
-                        lambda
-                            x: f'<div style="width: {width}px; display: inline-block; word-break: break-word;">{x}</div>')
-
-            # Convert the DataFrame to HTML
-            styled_df_html = df.to_html(index=False, escape=False, classes=['table', 'table-bordered'],
-                                        justify='center')
-            return self.create_pdf_response(styled_df_html, _day, cached_credentials)
-        else:
-            return {"message": "Invalid export format"}, 400
+                # Convert the DataFrame to HTML
+                styled_df_html = df.to_html(index=False, escape=False, classes=['table', 'table-bordered'],
+                                            justify='center')
+                return self.create_pdf_response(styled_df_html, _day, cached_credentials)
+            else:
+                return {"message": "Invalid export format"}, 400
+        except Exception as e:
+            logger.error("An error occurred: %s", e)
+            return {"message": "An error occurred during export. Please try again later."}, 500
 
     def create_csv_response(self, df, user_details):
         """
