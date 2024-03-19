@@ -3,6 +3,7 @@ from itertools import groupby
 import json
 import logging
 from datetime import datetime, timedelta, timezone
+import os
 from pathlib import Path
 from socket import gethostname
 import threading
@@ -214,7 +215,66 @@ class ServerAPI:
         )
 
     @always_raise_for_request_errors
-    def _delete(self, endpoint: str, data: Any = dict()) -> req.Response:
+    def _put(
+
+        self,
+        endpoint: str,
+        data: Union[List[Any], Dict[str, Any]],
+        params: Optional[dict] = None,
+    ) -> req.Response:
+        """
+         Send a POST request to the API. This is a helper for : meth : ` _url ` to make it easier to use in conjunction with
+
+         @param endpoint - The endpoint to send the request to.
+         @param data - The data to send as the body of the request.
+         @param params - A dictionary of headers to add to the request.
+
+         @return The response from the request as a : class : ` req. Response `
+        """
+        headers = {"Content-type": "application/json", "charset": "utf-8"}
+        # Update the headers with the params.
+        if params:
+            headers.update(params)
+        return req.put(
+            self._url(endpoint),
+            data=bytes(json.dumps(data), "utf8"),
+            headers=headers,
+            params=params,
+        )
+
+
+
+    @always_raise_for_request_errors
+    def _put_with_file(
+        self,
+        endpoint: str,
+        file,
+        params: Optional[dict] = None,
+    ) -> req.Response:
+        """
+         Send a POST request to the API. This is a helper for : meth : ` _url ` to make it easier to use in conjunction with
+
+         @param endpoint - The endpoint to send the request to.
+         @param data - The data to send as the body of the request.
+         @param params - A dictionary of headers to add to the request.
+
+         @return The response from the request as a : class : ` req. Response `
+        """
+        headers = {}
+        payload = {}
+
+        # Update the headers with the params.
+        if params:
+            headers.update(params)
+        files = {'file': (file.filename, file.stream, file.content_type)}
+        return req.put(
+            self._url(endpoint),
+            headers=headers, data=payload, files=files,
+        )
+
+    @always_raise_for_request_errors
+    def _delete(self, endpoint: str, data: Any = dict(),
+        params: Optional[dict] = None) -> req.Response:
         """
          Send a DELETE request to Cobbler. This is a helper method for : meth : ` delete_and_recover `.
 
@@ -224,6 +284,8 @@ class ServerAPI:
          @return A : class : ` req. Response ` object
         """
         headers = {"Content-type": "application/json"}
+        if params:
+            headers.update(params)
         return req.delete(self._url(endpoint), data=json.dumps(data), headers=headers)
 
 
@@ -257,6 +319,31 @@ class ServerAPI:
         """
         endpoint = f"/web/user/authorize"
         return self._post(endpoint , user)
+
+    def refresh_token(self, payload:Dict[str, Any]):
+        """
+         Refresh token. This is a PUT request to the ` / web / user / authorize / refresh_token` endpoint.
+
+         @param payload - The payload which contains refresh_token to create new access token. See API docs for more information.
+
+         @return The response from the server. If there was an error the response will contain the error
+        """
+        endpoint = f"/web/user/authorize/refresh_token"
+        return self._put(endpoint , payload)
+
+
+    def update_user_profile(self, access_token, file):
+        cache_key = "TTim"
+        cached_credentials = get_credentials(cache_key)
+        user_id = cached_credentials.get("userId")
+        if user_id:
+            endpoint = f"/web/user/{user_id}/profile"
+            response = self._put_with_file(endpoint, file, {"Authorization" : access_token})
+
+        if response.status_code == 200:
+            return {"code": json.loads(response.text)["code"], "message": json.loads(response.text)["message"],
+                    "data": json.loads(response.text)["data"]}, 200
+        return {"status": "error", "message": "Failed"}
 
     def create_company(self, user:Dict[str, Any], token):
         """
@@ -364,6 +451,44 @@ class ServerAPI:
             print(f"watcher_key: {decrypted_data_encryption_key}")
 
         return user_credentials
+
+    def get_user_by_id(self, token):
+        """
+        Get credentials for a user. This is a wrapper around the get_credentials endpoint to provide access to the user '
+
+        @param userId
+        @param token
+        """
+
+        cache_key = "TTim"
+        cached_credentials = get_credentials(cache_key)
+        user_id = cached_credentials.get("userId")
+
+        endpoint = f"/web/user/{user_id}"
+        user = self._get(endpoint, {"Authorization": token})
+
+        # This function is used to retrieve the user credentials.
+        if user.status_code == 200:
+            return json.loads(user.text)
+        else:
+            return None
+
+    def delete_user_profile_photo(self, token):
+        """
+        Delete profile photo of a user.'
+
+        @param userId
+        @param token
+        """
+
+        cache_key = "TTim"
+        cached_credentials = get_credentials(cache_key)
+        user_id = cached_credentials.get("userId")
+
+        endpoint = f"/web/user/{user_id}/profile"
+        user = self._delete(endpoint, {}, {"Authorization": token})
+
+        return json.loads(user.text)
 
     def get_user_details(self):
         """
@@ -936,6 +1061,9 @@ def datetime_serializer(obj):
     if isinstance(obj, datetime):
         return obj.isoformat()
 
+
+
+
 def event_filter(most_used_apps,data):
     """
         Filter events to include only those that don't have lock apps or login windows
@@ -1073,5 +1201,6 @@ def group_events_by_application(events):
     result_list = list(grouped_events.values())
 
     return result_list
+
 
 

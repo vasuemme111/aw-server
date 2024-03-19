@@ -57,7 +57,7 @@ def host_header_check(f):
         """
         excluded_paths = [
             '/api/0/buckets/',
-            '/api/swagger.json', '/api/0/ralvie/login',
+            '/api/swagger.json', '/api/0/ralvie/login','/api/0/ralvie/refresh_token',
             '/api/0/login', '/api/0/user'
         ]
         # This method is used to check if the request is valid and if the request is a heartbeat credentials and the request is not a valid credentials.
@@ -423,6 +423,7 @@ class RalvieLoginResource(Resource):
             # This function is used to get user credentials from the user_key
             if user_key is None:
                 token = json.loads(auth_result.text)["data"]["access_token"]
+                refresh_token = json.loads(auth_result.text)["data"]["refresh_token"]
                 user_id = json.loads(auth_result.text)["data"]["id"]
                 current_app.api.get_user_credentials(user_id, 'Bearer ' + token)
                 init_db = current_app.api.init_db()
@@ -446,7 +447,7 @@ class RalvieLoginResource(Resource):
             response_data["message"] = json.loads(auth_result.text)["message"],
             response_data["data"]: {"token": "Bearer " + encoded_jwt}
             return {"code": "UASI0011", "message": json.loads(auth_result.text)["message"],
-                    "data": {"token": "Bearer " + encoded_jwt}}, 200
+                    "data": {"token": "Bearer " + encoded_jwt, "access_token": "Bearer " + token, "refresh_token": refresh_token}}, 200
         else:
             return {"code": json.loads(auth_result.text)["code"], "message": json.loads(auth_result.text)["message"],
                     "data": json.loads(auth_result.text)["data"]}, 200
@@ -1556,6 +1557,72 @@ class LaunchOnStart(Resource):
                 delete_shortcut()
                 current_app.api.save_settings("launch", status)
                 return {"message": "Launch on start disabled."}, 200
+
+# Refresh token
+@api.route("/0/ralvie/refresh_token")
+class RalvieTokenRefreshResource(Resource):
+    def put(self):
+        """
+         Refresh token. This is the endpoint for refreshing the access token.
+
+
+         @return A JSON with the result of the authentication and user
+        """
+        # If the internet is not connected return a 200 error message.
+        if not is_internet_connected():
+            return jsonify({"message": "Please connect to the internet and try again."}), 200
+
+        data = request.get_json()
+
+        auth_result = current_app.api.refresh_token(data)
+
+        # Returns a JSON response with the user credentials.
+        if auth_result.status_code == 200 and json.loads(auth_result.text)["code"] == 'UASI0011':
+            token = json.loads(auth_result.text)["data"]["access_token"]
+            refresh_token = json.loads(auth_result.text)["data"]["refresh_token"]
+
+
+            return {"code": "UASI0011", "message": json.loads(auth_result.text)["message"],
+                    "data": {"access_token": 'Bearer ' + token,"refresh_token": refresh_token}}, 200
+        else:
+            return {"code": json.loads(auth_result.text)["code"], "message": json.loads(auth_result.text)["message"],
+                    "data": json.loads(auth_result.text)["data"]}, 200
+
+@api.route("/0/user/profile")
+class UpdateUserProfile(Resource):
+
+    def put(self):
+        # Get the URL from the request
+        access_token = request.form.get('access_token')
+
+        # Get the file from the request
+        file = request.files['file']
+
+        return current_app.api.update_user_profile(access_token, file)
+
+@api.route("/0/user/<string:token>")
+class UserDetailsById(Resource):
+    @copy_doc(ServerAPI.get_user_by_id)
+    def get(self, token):
+        """
+         Get user details. This is a view that can be used to retrieve user details from the API.
+
+         @param token: The token associated with the user.
+         @return A dictionary of user details keyed by user id. Example request **. : http Example response **
+        """
+        return current_app.api.get_user_by_id(token)
+
+@api.route("/0/user/profile_photo/<string:token>")
+class DeleteUserProfilePhoto(Resource):
+    @copy_doc(ServerAPI.delete_user_profile_photo)
+    def delete(self, token):
+        """
+         Delete user profile phot.
+
+         @param token: The token associated with the user.
+         @return Success response or failure response. Example request **. : http Example response **
+        """
+        return current_app.api.delete_user_profile_photo(token)
 
 
 
