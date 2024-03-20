@@ -746,6 +746,9 @@ class HeartbeatResource(Resource):
         heartbeat_data = request.get_json()
         if heartbeat_data['data']['title']=='':
             heartbeat_data['data']['title']=heartbeat_data['data']['app']
+        
+        if heartbeat_data['data']['app'] in ['ApplicationFrameHost.exe']:
+            heartbeat_data['data']['app']=heartbeat_data['data']['title']+'.exe'
 
         # Set default title using the value of 'app' attribute if it's not present in the data dictionary
         heartbeat = Event(**heartbeat_data)
