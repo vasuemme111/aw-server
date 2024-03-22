@@ -813,6 +813,7 @@ class HeartbeatResource(Resource):
                 # local_start_time_str = "17:57"
                 # Get the current date
                 current_date = datetime.now().date()
+                day_name = current_date.strftime("%A")
                 # Parse the time string and create a datetime object with the current date
                 local_start_time = datetime.strptime(f"{current_date} {local_start_time}", "%Y-%m-%d %H:%M")
                 local_end_time = datetime.strptime(f"{current_date} {local_end_time}", "%Y-%m-%d %H:%M")
@@ -825,8 +826,8 @@ class HeartbeatResource(Resource):
         
         # Check if schedule is true and contains weekdays
         current_time_utc = datetime.now(pytz.utc)
-        if schedule and any(day in true_week_values for day in ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]) and start_utc_time <= current_time_utc <= end_utc_time:
-            logger.info("Schedule is true and contains weekdays. Skipping data capture from {0} to {1}.".format(start_time_str,end_time_str))
+        if schedule and (day_name.lower() in true_week_values) and start_utc_time <= current_time_utc <= end_utc_time:
+            logger.info("Schedule is true and contains weekdays. Skipping data capture.")
             return {"message": "Skipping data capture."}, 200
         else:
             # Capture data
