@@ -8,8 +8,8 @@ import sys
 import pytz
 from tzlocal import get_localzone
 from xhtml2pdf import pisa
-
-from aw_core.launch_start import create_shortcut, delete_shortcut, delete_launch_app, launch_app
+from dateutil.parser import parse
+from aw_core.launch_start import create_shortcut, delete_shortcut, delete_launch_app, launch_app, check_startup_status
 from aw_core.util import authenticate, is_internet_connected, reset_user
 import pandas as pd
 from datetime import datetime, timedelta, date, time
@@ -36,6 +36,35 @@ from aw_datastore.storages.peewee import blocked_apps,blocked_url
 
 application_cache_key = "application_cache"
 manager = Manager()
+
+def get_potential_location_and_zone(minutes_difference):
+    """
+    Attempts to guess potential time zone based on assumed reference time
+    (UTC now) and time difference.
+
+    Args:
+        minutes_difference: The difference in minutes from the assumed reference time.
+
+    Returns:
+        A list of potential time zone objects, or None if information is missing.
+    """
+
+    # Assume reference time as UTC now (adjust as needed)
+    reference_time = datetime.utcnow()
+
+    # Calculate target time by adjusting reference time with minute difference
+    target_time = reference_time - timedelta(minutes=minutes_difference)
+
+    # Get potential offset based on minute difference (adjust as needed)
+    offset_minutes = minutes_difference % 60
+    offset_hours = (minutes_difference - offset_minutes) // 60
+    potential_offset = pytz.FixedOffset(offset_minutes)
+
+    # Consider all zones with the potential offset
+    potential_zones = [zone for zone in pytz.all_timezones
+                        if zone.localize(datetime.now()).utcoffset() == potential_offset]
+
+    return potential_zones
 
 
 def host_header_check(f):
@@ -748,38 +777,79 @@ class HeartbeatResource(Resource):
             heartbeat_data['data']['title']=heartbeat_data['data']['app']
 
         # Set default title using the value of 'app' attribute if it's not present in the data dictionary
-        heartbeat = Event(**heartbeat_data)
+        settings = db_cache.retrieve("settings_cache")
+        if not settings:
+            db_cache.store("settings_cache",current_app.api.retrieve_all_settings())
+        settings_code = settings.get("weekdays_schedule",{})
+        schedule = settings.get("schedule",{})
 
-        cache_key = "TTim"
-        cached_credentials = cache_user_credentials(cache_key, "SD_KEYS")
-        # Returns cached credentials if cached credentials are not cached.
-        if cached_credentials is None:
-            return {"message": "No cached credentials."}, 400
+        true_week_values = [key.lower() for key, value in settings_code.items() if value is True]
 
-        # The pulsetime parameter is required.
-        pulsetime = float(request.args["pulsetime"]) if "pulsetime" in request.args else None
-        if pulsetime is None:
-            return {"message": "Missing required parameter pulsetime"}, 400
+        if settings_code.get("starttime") and settings_code.get("endtime"):
+            try:
+                start_time_str = settings_code.get("starttime")
+                end_time_str = settings_code.get("endtime")
 
-        # This lock is meant to ensure that only one heartbeat is processed at a time,
-        # as the heartbeat function is not thread-safe.
-        # This should maybe be moved into the api.py file instead (but would be very messy).
-        if not self.lock.acquire(timeout=1):
-            logger.warning(
-                "Heartbeat lock could not be acquired within a reasonable time, this likely indicates a bug."
-            )
-            return {"message": "Failed to acquire heartbeat lock."}, 500
-        try:
-            event = current_app.api.heartbeat(bucket_id, heartbeat, pulsetime)
-        finally:
-            self.lock.release()
+                s_time_obj = datetime.strptime(start_time_str, "%I:%M %p")
+                e_time_obj = datetime.strptime(end_time_str, "%I:%M %p")
 
-        if event:
-            return event.to_json_dict(), 200
-        elif not event:
-            return "event not occured"
+                local_start_time = s_time_obj.strftime("%H:%M")
+                local_end_time = e_time_obj.strftime("%H:%M")
+
+                # local_start_time_str = "17:57"
+                # Get the current date
+                current_date = datetime.now().date()
+                day_name = current_date.strftime("%A")
+                # Parse the time string and create a datetime object with the current date
+                local_start_time = datetime.strptime(f"{current_date} {local_start_time}", "%Y-%m-%d %H:%M")
+                local_end_time = datetime.strptime(f"{current_date} {local_end_time}", "%Y-%m-%d %H:%M")
+
+                # Now local_start_time is a datetime object, you can use astimezone method
+                start_utc_time = local_start_time.astimezone(pytz.utc)
+                end_utc_time = local_end_time.astimezone(pytz.utc)
+            except json.JSONDecodeError:
+                logger.info("Error: Failed to decode JSON string")
+
+        # Check if schedule is true and contains weekdays
+        current_time_utc = datetime.now(pytz.utc)
+        if schedule and (day_name.lower() in true_week_values) and start_utc_time <= current_time_utc <= end_utc_time:
+
+            # Capture data
+            heartbeat = Event(**heartbeat_data)
+
+            cache_key = "TTim"
+            cached_credentials = cache_user_credentials(cache_key, "SD_KEYS")
+            # Returns cached credentials if cached credentials are not cached.
+            if cached_credentials is None:
+                return {"message": "No cached credentials."}, 400
+
+            # The pulsetime parameter is required.
+            pulsetime = float(request.args["pulsetime"]) if "pulsetime" in request.args else None
+            if pulsetime is None:
+                return {"message": "Missing required parameter pulsetime"}, 400
+
+            # This lock is meant to ensure that only one heartbeat is processed at a time,
+            # as the heartbeat function is not thread-safe.
+            # This should maybe be moved into the api.py file instead (but would be very messy).
+            if not self.lock.acquire(timeout=1):
+                logger.warning(
+                    "Heartbeat lock could not be acquired within a reasonable time, this likely indicates a bug."
+                )
+                return {"message": "Failed to acquire heartbeat lock."}, 500
+            try:
+                event = current_app.api.heartbeat(bucket_id, heartbeat, pulsetime)
+            finally:
+                self.lock.release()
+
+            if event:
+                return event.to_json_dict(), 200
+            elif not event:
+                return "event not occured"
+            else:
+                return {"message": "Heartbeat failed."}, 500
         else:
-            return {"message": "Heartbeat failed."}, 500
+            logger.info("Schedule is true and contains weekdays. Skipping data capture.")
+            return {"message": "Skipping data capture."}, 200
 
 
 
@@ -1487,12 +1557,14 @@ class MostUsedAppsResource(Resource):
          @return 200 OK if everything worked else 500 Internal Server Error
         """
         args = request.args
-        start = iso8601.parse_date(args["start"]) if "start" in args else None
-        end = iso8601.parse_date(args["end"]) if "end" in args else None
+        start_time =  parse(args["start"])
+        end_time = parse(args["end"])
+        # start = iso8601.parse_date(start_time) if "start" in args else None
+        # end = iso8601.parse_date(end_time) if "end" in args else None
 
         blocked_apps = blocked_list()
         events = current_app.api.get_most_used_apps(
-            start=start, end=end
+            start=start_time, end=end_time
         )
         if events:
             for i in range(len(events['most_used_apps']) - 1, -1, -1):
