@@ -1490,37 +1490,6 @@ class User(Resource):
                  "email": cached_credentials.get("email")})
 
 
-# def blocked_list():
-#     # Initialize the blocked_apps dictionary with empty lists for 'app' and 'url'
-#     blocked_apps = {"app": [], "url": []}
-#
-#     # Retrieve application blocking information from the cache
-#     application_blocked = db_cache.retrieve(application_cache_key)
-#     if not application_blocked:
-#         db_cache.store(application_cache_key, current_app.api.application_list())
-#     print("------>",application_blocked)
-#     if application_blocked:
-#         # Iterate over each application in the 'app' list
-#         for app_info in application_blocked.get('app', []):
-#             # Check if the application is blocked
-#             if app_info.get('is_blocked', False):
-#                 # If the application is blocked, append its name to the 'app' list in blocked_apps
-#                 app_name = app_info['name']
-#                 if platform.system() == 'Windows':
-#                     app_name += ".exe"  # Append ".exe" for Windows
-#                 blocked_apps['app'].append(app_name)
-#
-#         # Iterate over each URL entry in the 'url' list
-#         for url_info in application_blocked.get('url', []):
-#             # Check if the URL is blocked
-#             if url_info.get('is_blocked', False):
-#                 # If the URL is blocked, append it to the 'url' list in blocked_apps
-#                 blocked_apps['url'].append(url_info['url'])
-#
-#     return blocked_apps
-
-# BUCKETS
-
 @api.route("/0/dashboard/events")
 
 class DashboardResource(Resource):
