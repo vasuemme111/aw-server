@@ -784,6 +784,9 @@ class HeartbeatResource(Resource):
         @param bucket_id - The ID of the bucket to send the heartbeat to.
         @return 200 OK if heartbeats were sent 400 Bad Request if there is no credentials in
         """
+
+        cache_key = "TTim"
+        cached_credentials = cache_user_credentials(cache_key, "SD_KEYS")
         heartbeat_data = request.get_json()
         if heartbeat_data['data']['title']=='':
             heartbeat_data['data']['title']=heartbeat_data['data']['app']
@@ -832,9 +835,6 @@ class HeartbeatResource(Resource):
 
             # Capture data
             heartbeat = Event(**heartbeat_data)
-
-            cache_key = "TTim"
-            cached_credentials = cache_user_credentials(cache_key, "SD_KEYS")
             # Returns cached credentials if cached credentials are not cached.
             if cached_credentials is None:
                 return {"message": "No cached credentials."}, 400
@@ -864,6 +864,7 @@ class HeartbeatResource(Resource):
             else:
                 return {"message": "Heartbeat failed."}, 500
         else:
+
             heartbeat = Event(**heartbeat_data)
 
             cache_key = "TTim"
