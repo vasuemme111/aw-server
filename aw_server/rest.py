@@ -996,7 +996,6 @@ class ExportAllResource(Resource):
                                         event.get('url') in blocked_events.get('url', []))]
 
             df = pd.DataFrame(combined_events)[::-1]
-            
             df["datetime"] = pd.to_datetime(df["timestamp"], format='%Y-%m-%d %H:%M:%S.%f%z', errors='coerce')
             if not df.empty:
                 # Apply timezone conversion
