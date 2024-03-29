@@ -1702,4 +1702,3 @@ class DeleteUserProfilePhoto(Resource):
 
 
 
-
