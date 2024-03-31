@@ -996,7 +996,7 @@ class ExportAllResource(Resource):
                 # Filter out blocked events
                 blocked_events = blocked_list()  # Example blocked events
                 combined_events = [event for event in buckets_export['events'] if
-                                   not (event.get('application_name') in blocked_events.get('app', []) or
+                                   not (event.get('app') in blocked_events.get('app', []) or
                                         event.get('url') in blocked_events.get('url', []))]
 
             df = pd.DataFrame(combined_events)[::-1]
