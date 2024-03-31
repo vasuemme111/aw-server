@@ -99,12 +99,16 @@ def host_header_check(f):
             elif "/company" not in request.path:
                 cache_key = "TTim"
                 cached_credentials = cache_user_credentials(cache_key, "SD_KEYS")
-                user_key = cached_credentials.get("user_key")
-                try:
-                    jwt.decode(token.replace("Bearer ", ""), key=user_key, algorithms=["HS256"])
-                except jwt.InvalidTokenError as e:
-                    logging.error("Invalid token")
-                    return {"message": "Invalid token"}, 401
+                if cached_credentials is not None:
+                    user_key = cached_credentials.get("user_key")
+                    try:
+                        jwt.decode(token.replace("Bearer ", ""), key=user_key, algorithms=["HS256"])
+                    except jwt.InvalidTokenError as e:
+                        logging.error("Invalid token")
+                        return {"message": "Invalid token"}, 401
+                else:
+                    user_key=None
+                    logger.info("cache credentials are None.system checking..")
 
         server_host = current_app.config["HOST"]
         req_host = request.headers.get("host", None)
