@@ -99,12 +99,16 @@ def host_header_check(f):
             elif "/company" not in request.path:
                 cache_key = "TTim"
                 cached_credentials = cache_user_credentials(cache_key, "SD_KEYS")
-                user_key = cached_credentials.get("user_key")
-                try:
-                    jwt.decode(token.replace("Bearer ", ""), key=user_key, algorithms=["HS256"])
-                except jwt.InvalidTokenError as e:
-                    logging.error("Invalid token")
-                    return {"message": "Invalid token"}, 401
+                if cached_credentials is not None:
+                    user_key = cached_credentials.get("user_key")
+                    try:
+                        jwt.decode(token.replace("Bearer ", ""), key=user_key, algorithms=["HS256"])
+                    except jwt.InvalidTokenError as e:
+                        logging.error("Invalid token")
+                        return {"message": "Invalid token"}, 401
+                else:
+                    user_key=None
+                    logger.info("cache credentials are None at the time.system checking....please login")
 
         server_host = current_app.config["HOST"]
         req_host = request.headers.get("host", None)
@@ -815,77 +819,42 @@ class HeartbeatResource(Resource):
 
         # Check if schedule is true and contains weekdays
         current_time_utc = datetime.now(pytz.utc)
-        if schedule and (day_name.lower() in true_week_values) and start_utc_time <= current_time_utc <= end_utc_time:
-
-            # Capture data
-            heartbeat = Event(**heartbeat_data)
-
-            cache_key = "TTim"
-            cached_credentials = cache_user_credentials(cache_key, "SD_KEYS")
-            # Returns cached credentials if cached credentials are not cached.
-            if cached_credentials is None:
-                return {"message": "No cached credentials."}, 400
-
-            # The pulsetime parameter is required.
-            pulsetime = float(request.args["pulsetime"]) if "pulsetime" in request.args else None
-            if pulsetime is None:
-                return {"message": "Missing required parameter pulsetime"}, 400
-
-            # This lock is meant to ensure that only one heartbeat is processed at a time,
-            # as the heartbeat function is not thread-safe.
-            # This should maybe be moved into the api.py file instead (but would be very messy).
-            if not self.lock.acquire(timeout=1):
-                logger.warning(
-                    "Heartbeat lock could not be acquired within a reasonable time, this likely indicates a bug."
-                )
-                return {"message": "Failed to acquire heartbeat lock."}, 500
-            try:
-                event = current_app.api.heartbeat(bucket_id, heartbeat, pulsetime)
-            finally:
-                self.lock.release()
-
-            if event:
-                return event.to_json_dict(), 200
-            elif not event:
-                return "event not occured"
-            else:
-                return {"message": "Heartbeat failed."}, 500
-        elif not schedule:
-            heartbeat = Event(**heartbeat_data)
-
-            cache_key = "TTim"
-            cached_credentials = cache_user_credentials(cache_key, "SD_KEYS")
-            # Returns cached credentials if cached credentials are not cached.
-            if cached_credentials is None:
-                return {"message": "No cached credentials."}, 400
-
-            # The pulsetime parameter is required.
-            pulsetime = float(request.args["pulsetime"]) if "pulsetime" in request.args else None
-            if pulsetime is None:
-                return {"message": "Missing required parameter pulsetime"}, 400
-
-            # This lock is meant to ensure that only one heartbeat is processed at a time,
-            # as the heartbeat function is not thread-safe.
-            # This should maybe be moved into the api.py file instead (but would be very messy).
-            if not self.lock.acquire(timeout=1):
-                logger.warning(
-                    "Heartbeat lock could not be acquired within a reasonable time, this likely indicates a bug."
-                )
-                return {"message": "Failed to acquire heartbeat lock."}, 500
-            try:
-                event = current_app.api.heartbeat(bucket_id, heartbeat, pulsetime)
-            finally:
-                self.lock.release()
-
-            if event:
-                return event.to_json_dict(), 200
-            elif not event:
-                return "event not occured"
-            else:
-                return {"message": "Heartbeat failed."}, 500
-        else:
-            logger.info("Schedule is true and contains weekdays. Skipping data capture.")
+        if schedule and (day_name.lower() in true_week_values) and not (start_utc_time <= current_time_utc <= end_utc_time):
             return {"message": "Skipping data capture."}, 200
+            # Capture data
+        heartbeat = Event(**heartbeat_data)
+
+        cache_key = "TTim"
+        cached_credentials = cache_user_credentials(cache_key, "SD_KEYS")
+        # Returns cached credentials if cached credentials are not cached.
+        if cached_credentials is None:
+            return {"message": "No cached credentials."}, 400
+
+        # The pulsetime parameter is required.
+        pulsetime = float(request.args["pulsetime"]) if "pulsetime" in request.args else None
+        if pulsetime is None:
+            return {"message": "Missing required parameter pulsetime"}, 400
+
+        # This lock is meant to ensure that only one heartbeat is processed at a time,
+        # as the heartbeat function is not thread-safe.
+        # This should maybe be moved into the api.py file instead (but would be very messy).
+        if not self.lock.acquire(timeout=1):
+            logger.warning(
+                "Heartbeat lock could not be acquired within a reasonable time, this likely indicates a bug."
+            )
+            return {"message": "Failed to acquire heartbeat lock."}, 500
+        try:
+            event = current_app.api.heartbeat(bucket_id, heartbeat, pulsetime)
+        finally:
+            self.lock.release()
+
+        if event:
+            return event.to_json_dict(), 200
+        elif not event:
+            return "event not occured"
+        else:
+            return {"message": "Heartbeat failed."}, 500
+
 
 
 
@@ -961,10 +930,6 @@ class ExportAllResource(Resource):
     @api.doc(params={"format": "Export format (csv, excel, pdf)",
                      "date": "Date for which to export data (today, yesterday)"})
     def get(self):
-        """
-        Export events to CSV or CSV format. This endpoint is used to export events from the API and store them in a file for use in other endpoints.
-        @return JSON or JSON - encoded data and status of the
-        """
         try:
             cache_key = "TTim"
             cached_credentials = cache_user_credentials(cache_key, "SD_KEYS")
@@ -973,11 +938,9 @@ class ExportAllResource(Resource):
             export_format = request.args.get("format", "csv")
             _day = request.args.get("date", "today")
 
-            # Invalid date parameter for day is not in today yesterday
             if _day not in ["today", "yesterday"]:
                 return {"message": "Invalid date parameter"}, 400
 
-            # Export and process data
             combined_events = []
             if _day == "today":
                 day_start = datetime.combine(datetime.now(), time.min)
@@ -989,18 +952,18 @@ class ExportAllResource(Resource):
             buckets_export = current_app.api.get_dashboard_events(day_start, day_end)
 
             if 'events' in buckets_export:
-                # Filter out blocked events
-                blocked_events = blocked_list()  # Example blocked events
+                blocked_events = blocked_list()
                 combined_events = [event for event in buckets_export['events'] if
-                                   not (event.get('application_name') in blocked_events.get('app', []) or
+                                   not (event.get('app') in blocked_events.get('app', []) or
                                         event.get('url') in blocked_events.get('url', []))]
 
             df = pd.DataFrame(combined_events)[::-1]
-            df["datetime"] = pd.to_datetime(df["timestamp"])
+
+            # Parse timestamp column to datetime
+            df["datetime"] = pd.to_datetime(df["timestamp"], utc=True)
 
             if not df.empty:
-                # Apply timezone conversion
-                timezone_offset = settings.get('time_zone', '+00:00')  # Default to UTC if not specified
+                timezone_offset = settings.get('time_zone', '+00:00')
                 df["datetime"] = df["datetime"].dt.tz_convert(timezone_offset)
 
             if _day == "today":
@@ -1037,14 +1000,12 @@ class ExportAllResource(Resource):
                     'Event Data': 300,
                 }
 
-                # Apply the formatting to each cell
                 for column, width in column_widths.items():
-                    if column in df.columns:  # Check if the column exists in your DataFrame
+                    if column in df.columns:
                         df[column] = df[column].apply(
                             lambda
                                 x: f'<div style="width: {width}px; display: inline-block; word-break: break-word;">{x}</div>')
 
-                # Convert the DataFrame to HTML
                 styled_df_html = df.to_html(index=False, escape=False, classes=['table', 'table-bordered'],
                                             justify='center')
                 return self.create_pdf_response(styled_df_html, _day, cached_credentials)
