@@ -9,7 +9,8 @@ import pytz
 from tzlocal import get_localzone
 from xhtml2pdf import pisa
 from dateutil.parser import parse
-from aw_core.launch_start import create_shortcut, delete_shortcut, delete_launch_app, launch_app, check_startup_status
+from aw_core.launch_start import delete_launch_app, launch_app, check_startup_status, \
+    set_autostart_registry
 from aw_core.util import authenticate, is_internet_connected, reset_user
 import pandas as pd
 from datetime import datetime, timedelta, date, time
@@ -1588,11 +1589,11 @@ class LaunchOnStart(Resource):
                 return {"error": "Status is required in the request body."}, 400
 
             if status:
-                create_shortcut()
+                set_autostart_registry(autostart=True)
                 current_app.api.save_settings("launch", status)
                 return {"message": "Launch on start enabled."}, 200
             else:
-                delete_shortcut()
+                set_autostart_registry(autostart=False)
                 current_app.api.save_settings("launch", status)
                 return {"message": "Launch on start disabled."}, 200
 
