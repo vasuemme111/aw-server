@@ -10,8 +10,7 @@ import numpy as np
 from tzlocal import get_localzone
 from xhtml2pdf import pisa
 from dateutil.parser import parse
-from aw_core.launch_start import delete_launch_app, launch_app, check_startup_status, \
-    set_autostart_registry
+from aw_core.launch_start import delete_launch_app, launch_app, check_startup_status
 from aw_core.util import authenticate, is_internet_connected, reset_user
 import pandas as pd
 from datetime import datetime, timedelta, date, time
@@ -956,7 +955,7 @@ class ExportAllResource(Resource):
             if 'events' in buckets_export:
                 blocked_events = blocked_list()
                 combined_events = [event for event in buckets_export['events'] if
-                                   not (event.get('app') in blocked_events.get('app', []) or
+                                   not (event.get('app').capitalize() in blocked_events.get('app', []) or
                                         event.get('url') in blocked_events.get('url', []))]
 
             df = pd.DataFrame(combined_events)[::-1]
@@ -1508,7 +1507,7 @@ class DashboardResource(Resource):
                 event = events['events'][i]
                 # if "url" in event['data'].keys() and event['data']['url'] and event['data'] ['url'].replace("https://","").replace("http://", "").replace("www.", "") in blocked_apps['url']:
                 # print("blocked url",blocked_apps['url'])
-                if event['data']['app'] in blocked_apps['app']:
+                if event['data']['app'].capitalize() in blocked_apps['app']:
                     del events['events'][i]
                 elif removeprotocals(event['url']) in blocked_apps['url']:
                     del events['events'][i]
