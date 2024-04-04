@@ -6,6 +6,7 @@ from threading import Lock
 from typing import Dict
 import sys
 import pytz
+import numpy as np
 from tzlocal import get_localzone
 from xhtml2pdf import pisa
 from dateutil.parser import parse
@@ -971,7 +972,7 @@ class ExportAllResource(Resource):
                 df = df[df["datetime"].dt.date == datetime.now().date()]
             elif _day == "yesterday":
                 df = df[df["datetime"].dt.date == (datetime.now() - timedelta(days=1)).date()]
-
+            df["duration"] = df['duration'].apply(np.ceil)
             df["Time Spent"] = df["duration"].apply(lambda x: format_duration(x))
             df['Application Name'] = df['application_name'].str.capitalize()
             df['Event Data'] = df['title'].astype(str)
