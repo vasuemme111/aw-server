@@ -914,7 +914,7 @@ def blocked_list():
                 app_name = app_info['name']
                 if platform.system() == 'Windows':
                     app_name += ".exe"  # Append ".exe" for Windows
-                blocked_apps['app'].append(app_name)
+                blocked_apps['app'].append(app_name.lower())
 
         # Iterate over each URL entry in the 'url' list
         for url_info in application_blocked.get('url', []):
@@ -955,7 +955,7 @@ class ExportAllResource(Resource):
             if 'events' in buckets_export:
                 blocked_events = blocked_list()
                 combined_events = [event for event in buckets_export['events'] if
-                                   not (event.get('app').capitalize() in blocked_events.get('app', []) or
+                                   not (event.get('app').lower() in blocked_events.get('app', []) or
                                         event.get('url') in blocked_events.get('url', []))]
 
             df = pd.DataFrame(combined_events)[::-1]
@@ -1507,7 +1507,7 @@ class DashboardResource(Resource):
                 event = events['events'][i]
                 # if "url" in event['data'].keys() and event['data']['url'] and event['data'] ['url'].replace("https://","").replace("http://", "").replace("www.", "") in blocked_apps['url']:
                 # print("blocked url",blocked_apps['url'])
-                if event['data']['app'].capitalize() in blocked_apps['app']:
+                if event['data']['app'].lower() in blocked_apps['app']:
                     del events['events'][i]
                 elif removeprotocals(event['url']) in blocked_apps['url']:
                     del events['events'][i]
